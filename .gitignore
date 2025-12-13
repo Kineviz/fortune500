@@ -1,3 +1,4 @@
 sec-edgar-filings
 data
 .DS_Store
+__pycache__
