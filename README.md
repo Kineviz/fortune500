@@ -105,5 +105,53 @@ sec-edgar-filings/
 ...
 ```
 
+
+## Filing Parser
+
+Convert the raw SGML filings into clean, readable Markdown documents.
+
+### Features
+- **SGML to Markdown**: Converts messy SGML/HTML into structured Markdown.
+- **Strict Filtering**: Extracts *only* the main filing (`full-submission.md`), proper images (`.jpg`, `.gif`), and spreadsheets (`.xlsx`, `.csv`). Filtering out XML trash and other noise.
+- **Parallel Processing**: Uses multiple CPU cores for fast parallel parsing (`--workers`).
+- **Resume Capability**: Automatically skips filings that have already been processed (`full-submission.md` exists).
+- **SEC Link**: Adds a direct link to the official SEC filing at the top of the document.
+
+### Usage
+
+Run `parser.py` to process the downloaded filings.
+
+**Basic Usage:**
+Process all filings in `data/sgml` and save to `data/markdown`:
+```bash
+python parser.py --input_base data/sgml --output_base data/markdown
+```
+
+**Parallel Processing:**
+Use 8 worker processes to speed up parsing:
+```bash
+python parser.py --workers 8
+```
+
+**Custom Paths:**
+```bash
+python parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
+```
+
+## Output Structure
+
+The scraper produces `data/sgml/`, and the parser produces `data/markdown/`.
+
+```
+data/markdown/
+├── [Ticker]
+│   ├── 10-K
+│   │   └── [Accession Number]
+│       │   ├── full-submission.md   (Main Document)
+│       │   ├── Financial_Report.xlsx
+│       │   ├── graphic1.jpg
+│       │   └── ...
+```
+
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)
