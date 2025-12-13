@@ -30,14 +30,14 @@ pip install pandas requests beautifulsoup4 thefuzz tqdm
 
 ## Usage
 
-Run the `scraper_custom.py` script from the command line.
+Run the `scraper.py` script from the command line.
 
 ### Basic Usage
 
 Download filings for the top 10 companies for the current year:
 
 ```bash
-python scraper_custom.py --limit 10
+python scraper.py --limit 10
 ```
 
 ### Advanced Usage
@@ -45,39 +45,39 @@ python scraper_custom.py --limit 10
 **Filter by Year:**
 Download filings for the top 20 companies for the year 2023:
 ```bash
-python scraper_custom.py --limit 20 --year 2023
+python scraper.py --limit 20 --year 2023
 ```
 
 **Filter by Last N Years:**
 Download filings for the top 50 companies for the last 5 years:
 ```bash
-python scraper_custom.py --limit 50 --last-n-years 5
+python scraper.py --limit 50 --last-n-years 5
 ```
 
 **Dry Run (Simulation):**
 See what would be downloaded without actually downloading/saving:
 ```bash
-python scraper_custom.py --limit 1 --year 2024 --dry-run
+python scraper.py --limit 1 --year 2024 --dry-run
 ```
 
 **Custom Output Directory:**
 Save filings to a specific folder:
 ```bash
-python scraper_custom.py --limit 10 --output-dir my_custom_folder
+python scraper.py --limit 10 --output-dir my_custom_folder
 ```
 (Default is `sec-edgar-filings`)
 
 **Concurrency:**
 Adjust the number of worker threads (default is 5):
 ```bash
-python scraper_custom.py --workers 10
+python scraper.py --workers 10
 ```
 
 ### All Parameters Example
 
 Run with all options combined:
 ```bash
-python scraper_custom.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
+python scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
 ```
 
 ## Output Structure
