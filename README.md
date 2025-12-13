@@ -1,81 +1,109 @@
-# Fortune 500 SEC Scraper
+# Fortune 500 SEC Filing Scraper (Custom Edition)
 
-This project contains a Python script `scraper.py` effectively designed to scrape **10-K** (Annual) and **10-Q** (Quarterly) filings from the SEC EDGAR database for Fortune 500 companies.
+A high-performance, custom-built Python scraper to download 10-K and 10-Q filings for Fortune 500 companies from the SEC EDGAR database.
+
+This tool was built from scratch to bypass common anti-bot restrictions and improve performance over standard libraries. It uses `requests` and `BeautifulSoup` with `asyncio` for concurrent downloading.
 
 ## Features
 
-- **Automated Ticker Resolution**: Automatically matches company names from `list.csv` to official SEC tickers (e.g., "Walmart" -> "WMT") using fuzzy string matching.
-- **Robust Downloading**: Uses the `sec-edgar-downloader` library to handle SEC rate limiting and directory organization.
-- **Flexible Date Filtering**: Support for downloading filings for a specific year or the last N years.
-- **Progress Tracking**: Includes a progress bar to monitor extraction status.
+- **Custom Implementation**: No dependency on `sec-edgar-downloader` or `datamule`. Scrapes SEC "Classic Browse" directly.
+- **High Performance**: Downloads multiple filings concurrently.
+- **Robustness**: Handles ticker resolution and SEC rate limiting (10 req/s compliant).
+- **Flexible Filtering**:
+    - Filter by specific year (`--year 2024`)
+    - Filter by last N years (`--last-n-years 3`)
+- **Dry Run**: Preview what would be downloaded without saving files (`--dry-run`).
 
-## Prerequisites
+## Dependencies
 
-Ensure you have Python 3.9+ installed.
+- `pandas`
+- `requests`
+- `beautifulsoup4`
+- `thefuzz`
+- `tqdm`
 
-### Installation
+Install them via pip:
 
-1.  Clone the repository or navigate to the project folder.
-2.  Install the required dependencies:
-
-    ```bash
-    pip install pandas requests sec-edgar-downloader thefuzz tqdm
-    ```
+```bash
+pip install pandas requests beautifulsoup4 thefuzz tqdm
+```
 
 ## Usage
 
-The script is run via the command line.
+Run the `scraper_custom.py` script from the command line.
 
 ### Basic Usage
 
-Download filings for the top 10 companies in `list.csv` (defaults to the latest filing):
+Download filings for the top 10 companies for the current year:
 
 ```bash
-python scraper.py --limit 10
+python scraper_custom.py --limit 10
 ```
 
-### Dry Run (Verify Ticker Resolution)
+### Advanced Usage
 
-Check which companies will be processed and their resolved tickers without downloading anything:
-
+**Filter by Year:**
+Download filings for the top 20 companies for the year 2023:
 ```bash
-python scraper.py --limit 10 --dry-run
+python scraper_custom.py --limit 20 --year 2023
 ```
 
-### Download by Specific Year
-
-Download all 10-K and 10-Q filings for the year 2024:
-
+**Filter by Last N Years:**
+Download filings for the top 50 companies for the last 5 years:
 ```bash
-python scraper.py --limit 50 --year 2024
+python scraper_custom.py --limit 50 --last-n-years 5
 ```
 
-### Download for the Last N Years
-
-Download filings for the last 5 years (including the current year) for all 500 companies:
-
+**Dry Run (Simulation):**
+See what would be downloaded without actually downloading/saving:
 ```bash
-python scraper.py --limit 500 --last-n-years 5
+python scraper_custom.py --limit 1 --year 2024 --dry-run
+```
+
+**Custom Output Directory:**
+Save filings to a specific folder:
+```bash
+python scraper_custom.py --limit 10 --output-dir my_custom_folder
+```
+(Default is `sec-edgar-filings`)
+
+**Concurrency:**
+Adjust the number of worker threads (default is 5):
+```bash
+python scraper_custom.py --workers 10
+```
+
+### All Parameters Example
+
+Run with all options combined:
+```bash
+python scraper_custom.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
 ```
 
 ## Output Structure
 
-Filings are saved in the `sec-edgar-filings` directory, organized by Ticker, Filing Type, and Accession Number:
+Filings are saved in the following directory structure:
 
 ```
 sec-edgar-filings/
-├── WMT/
-│   ├── 10-K/
-│   │   └── 0000104169-24-000056/
+├── [Ticker]
+│   ├── 10-K
+│   │   └── [Accession Number]
 │   │       └── full-submission.txt
-│   └── 10-Q/
-│       └── ...
-├── AAPL/
-│   └── ...
-└── ...
+│   └── 10-Q
+│       └── [Accession Number]
+│           └── full-submission.txt
 ```
 
-## Configuration
+Example:
+```
+sec-edgar-filings/
+├── WMT
+│   ├── 10-K
+│   │   └── 0000104169-24-000056
+│   │       └── full-submission.txt
+...
+```
 
-- **User Agent**: The script uses a default User-Agent (`AntigravityBot generic@antigravity.com`) to comply with SEC requirements. You can modify this in `scraper.py` if needed.
-- **Rate Limiting**: The download library automatically limits requests to 10 per second to stay within SEC guidelines.
+## License
+[MIT](https://choosealicense.com/licenses/mit/)

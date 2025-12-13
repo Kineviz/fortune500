@@ -1,5 +1,4 @@
 pandas
 requests
-sec-edgar-downloader
 thefuzz
 tqdm
