@@ -85,19 +85,20 @@ python scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data
 Filings are saved in the following directory structure:
 
 ```
-sec-edgar-filings/
-├── [Ticker]
-│   ├── 10-K
-│   │   └── [Accession Number]
-│   │       └── full-submission.txt
-│   └── 10-Q
-│       └── [Accession Number]
-│           └── full-submission.txt
+data/
+├── sgml
+    ├── [Ticker]
+    │   ├── 10-K
+    │   │   └── [Accession Number]
+    │   │       └── full-submission.txt
+    │   └── 10-Q
+    │       └── [Accession Number]
+    │           └── full-submission.txt
 ```
 
 Example:
 ```
-sec-edgar-filings/
+data/
 ├── WMT
 │   ├── 10-K
 │   │   └── 0000104169-24-000056
@@ -151,6 +152,67 @@ data/markdown/
 │       │   ├── Financial_Report.xlsx
 │       │   ├── graphic1.jpg
 │       │   └── ...
+```
+
+## BigQuery Property Graph Pipeline
+
+A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction.
+
+### Overview
+
+This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors, then transforms these insights into a compliant SQL/PGQ Property Graph.
+
+### 1. AI Insight Extraction
+**Script**: `extraction.sql`
+
+Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
+- **Input**: `sec_filings.sections` (10-K text chunks)
+- **Output**: `sec_filings.insights` (Structured JSON in `ml_generate_text_result`)
+- **Key Features**: strict JSON validation, zero-shot entity extraction.
+
+### 2. Graph Transformation & Normalization
+**Scripts**: `create_graph.sql`, `prepare_property_graph.sql`
+
+1.  **Flattening (`create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
+2.  **Normalization (`prepare_property_graph.sql`)**:
+    -   Splits the flat edges into distinct **Node Tables**: `nodes_company`, `nodes_market`, `nodes_risk`, etc.
+    -   Creates **Edge Tables**: `edges_entering`, `edges_faces_risk`, etc.
+    -   **Schema Refinement**: Moves "properties" (descriptions, evidence, year) from the Edges to the Nodes to create "Lean Edges, Rich Nodes".
+
+### 3. Property Graph Creation (DDL)
+**Script**: `create_property_graph_ddl.sql`
+
+Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph object `sec_filings.SecGraph`.
+-   **Nodes**: Defined with semantic properties (e.g., `Market` nodes have `evidence` and `year`).
+-   **Edges**: Defined as pure relationships with no properties, linking the Source and Destination keys.
+
+### Usage
+
+**Run the full pipeline:**
+
+```bash
+# 1. Extract Insights with AI
+bq query --use_legacy_sql=false --location=US "$(cat extraction.sql)"
+
+# 2. Transform to Graph Edges
+cat create_graph.sql | bq query --use_legacy_sql=false --location=US
+
+# 3. Create Physical Node/Edge Tables
+cat prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
+
+# 4. Create Property Graph Object
+cat create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
+```
+
+### Querying the Graph (GQL)
+
+Once created, you can query the graph using standard GQL directly in BigQuery:
+
+```sql
+GRAPH sec_filings.SecGraph
+MATCH (c:Company)-[:ENTERING]->(m:Market)
+WHERE m.year = 2020
+RETURN c.id, m.id, m.evidence
 ```
 
 ## License
