@@ -154,6 +154,49 @@ data/markdown/
 │       │   └── ...
 ```
 
+## Section Extraction
+
+Extract structured sections (Item 1, Item 1A, Item 7, etc.) from the raw `full-submission.txt` (or cleaned HTML) into JSONL format. This prepares the data for AI processing.
+
+### Usage
+
+Run `extract_sections.py` to process the SGML/Text filings.
+
+**Basic Usage:**
+Process all filings in `data/sgml` and save to `data/json`:
+```bash
+python extract_sections.py
+```
+
+**Specific Ticker/Year:**
+Process only AAPL for 2023:
+```bash
+python extract_sections.py --ticker AAPL --year 2023
+```
+
+**Custom Paths:**
+```bash
+python extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
+```
+
+### Output Structure
+
+The script produces `sections.jsonl` files:
+
+```
+data/json/
+├── [Ticker]
+│   ├── [Year]
+│   │   └── sections.jsonl
+```
+
+Each line in `sections.jsonl` is a JSON object containing:
+- `filing_id`: Original filename
+- `company`: Ticker symbol
+- `year`: Filing year
+- `section_id`: The extracted section header (e.g., "Item 1. Business")
+- `content`: The text content of that section
+
 ## BigQuery Property Graph Pipeline
 
 A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction.
@@ -188,8 +231,23 @@ Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph ob
 
 ### Usage
 
-**Run the full pipeline:**
+### Usage
 
+You can use the helper script `run_full_pipeline.sh` for an end-to-end execution.
+
+**1. Full Load (Reset Table):**
+This loads **ALL** JSONL files from the GCS bucket (`*/*/sections.jsonl`) and **REPLACES** the entire BigQuery table.
+```bash
+./run_full_pipeline.sh
+```
+
+**2. Incremental Load (Specific Company):**
+This loads **ONLY** the specified company (e.g., `AAPL`). It first **DELETES** existing rows for that company and then **APPENDS** the new data. Existing data for other companies remains untouched.
+```bash
+./run_full_pipeline.sh AAPL
+```
+
+**Alternative: Manual Step-by-Step:**
 ```bash
 # 1. Extract Insights with AI
 bq query --use_legacy_sql=false --location=US "$(cat extraction.sql)"
