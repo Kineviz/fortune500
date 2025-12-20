@@ -7,6 +7,9 @@ TICKER=${1:-*}
 echo "1. Uploading JSONL files to GCS..."
 gsutil -m rsync -r data/json gs://kineviz_fortune500_sec_filing/json
 
+# Use explicit schema to prevent INT64 detection for phone/numbers
+SCHEMA="filing_id:STRING,company:STRING,company_name:STRING,cik:STRING,sic:STRING,irs_number:STRING,state_of_inc:STRING,org_name:STRING,sec_file_number:STRING,film_number:STRING,business_street_1:STRING,business_street_2:STRING,business_city:STRING,business_state:STRING,business_zip:STRING,business_phone:STRING,mail_street_1:STRING,mail_street_2:STRING,mail_city:STRING,mail_state:STRING,mail_zip:STRING,filing_url:STRING,year:INTEGER,section_id:STRING,content:STRING"
+
 # --- HELPER FUNCTION: Process a batch of tickers ---
 process_batch() {
     local uris="$1"
@@ -15,12 +18,9 @@ process_batch() {
         return
     fi
     
-    # Hide output for cleaner progress bar, or log to file? 
-    # For now, let's keep it visible but maybe indented or just rely on the bar updates between steps.
-    # Actually, bq output might mess up the bar. Let's just print a status line.
-    
     echo "  -> Loading batch into staging table..."
-    bq load --source_format=NEWLINE_DELIMITED_JSON --autodetect --replace sec_filings.sections_staging "$uris" > /dev/null 2>&1
+    # Using explicit schema instead of autodetect
+    bq load --source_format=NEWLINE_DELIMITED_JSON --replace --schema="$SCHEMA" sec_filings.sections_staging "$uris" > /dev/null 2>&1
     
     echo "  -> Running AI Extraction on batch..."
     cat 04_extraction.sql | bq query --use_legacy_sql=false --location=US > /dev/null 2>&1
@@ -56,7 +56,7 @@ if [ "$TICKER" == "*" ]; then
   COMPANIES=$(find data/json -mindepth 1 -maxdepth 1 -type d)
   TOTAL_COMPANIES=$(echo "$COMPANIES" | wc -w | xargs) # xargs trims whitespace
   
-  BATCH_SIZE=10
+  BATCH_SIZE=1
   CURRENT_URIS=""
   COUNT=0
   PROCESSED_TOTAL=0
@@ -104,7 +104,7 @@ else
   bq query --use_legacy_sql=false "DELETE FROM sec_filings.sections WHERE company = '$TICKER'"
   bq query --use_legacy_sql=false "DELETE FROM sec_filings.insights WHERE company = '$TICKER'"
   
-  bq load --source_format=NEWLINE_DELIMITED_JSON --autodetect --replace sec_filings.sections_staging "gs://kineviz_fortune500_sec_filing/json/$TICKER/*/sections.jsonl"
+  bq load --source_format=NEWLINE_DELIMITED_JSON --replace --schema="$SCHEMA" sec_filings.sections_staging "gs://kineviz_fortune500_sec_filing/json/$TICKER/*/sections.jsonl"
   
   cat 04_extraction.sql | bq query --use_legacy_sql=false --location=US
   
