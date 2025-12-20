@@ -108,6 +108,96 @@ def process_filing(args):
         soup = BeautifulSoup(clean_html(raw_html), 'html.parser')
         clean_text = soup.get_text(separator='\n\n')
         
+        # Find Company Name
+        # COMPANY CONFORMED NAME:                 CINTAS CORP
+        company_name_match = re.search(r'COMPANY CONFORMED NAME:\s+(.+)', sub_content[:1000] if 'sub_content' in locals() else content[:3000])
+        # Fallback if sub_content not defined yet or name is earlier
+        if not company_name_match:
+             company_name_match = re.search(r'COMPANY CONFORMED NAME:\s+(.+)', content[:5000])
+             
+        company_name = company_name_match.group(1).strip() if company_name_match else ticker
+
+        # Extract Extended Metadata
+        metadata = {
+            "cik": None,
+            "sic": None,
+            "irs_number": None,
+            "state_of_inc": None,
+            "org_name": None,
+            "sec_file_number": None,
+            "film_number": None,
+            "business_address": None,
+            "mail_address": None
+        }
+
+        # Metadata Parsing
+        # The SGML header is at the very beginning of the file, before the <DOCUMENT> tags.
+        # We must search 'content', not 'sub_content' (which starts at <TYPE>10-K).
+        header_content = content[:10000]
+
+        # Helper to extract address block
+        def extract_address(block_name, text):
+            # Look for BLOCK NAME: ... until next block with indentation logic or empty line
+            match = re.search(rf'{block_name}:\s*(.*?)(?=\n\s*[A-Z ]+:|$)', text, re.DOTALL)
+            if match:
+                addr_text = match.group(1)
+                # Parse lines like "STREET 1: ..."
+                addr_parts = {}
+                for line in addr_text.split('\n'):
+                    if ':' in line:
+                        key, val = line.split(':', 1)
+                        # Normalize key: STREET 1 -> street_1
+                        norm_key = key.strip().lower().replace(' ', '_')
+                        addr_parts[norm_key] = val.strip()
+                return addr_parts
+            return {}
+
+        metadata["business_address"] = extract_address("BUSINESS ADDRESS", header_content)
+        metadata["mail_address"] = extract_address("MAIL ADDRESS", header_content)
+        
+        # Regex Patterns for other fields
+        field_patterns = {
+            "cik": r'CENTRAL INDEX KEY:\s+(.+)',
+            "sic": r'STANDARD INDUSTRIAL CLASSIFICATION:\s+(.+)',
+            "irs_number": r'IRS NUMBER:\s+(.+)',
+            "state_of_inc": r'STATE OF INCORPORATION:\s+(.+)',
+            "org_name": r'ORGANIZATION NAME:\s+(.+)',
+            "sec_file_number": r'SEC FILE NUMBER:\s+(.+)',
+            "film_number": r'FILM NUMBER:\s+(.+)'
+        }
+
+        for key, pattern in field_patterns.items():
+             m = re.search(pattern, header_content)
+             if m:
+                 metadata[key] = m.group(1).strip()
+
+
+        # Extract Accession Number from path
+        # filepath: .../10-K/0000320193-20-000096/full-submission.txt
+        accession_number = os.path.basename(os.path.dirname(filepath))
+        accession_nodash = accession_number.replace('-', '')
+
+        # Extract Primary Document Filename
+        # Look for <FILENAME> in the same 10-K document block (sub_content)
+        # It usually appears after <TYPE> and before <TEXT>
+        filename_match = re.search(r'<FILENAME>(.+?)(?=\n|<)', sub_content, re.IGNORECASE)
+        primary_doc_filename = filename_match.group(1).strip() if filename_match else "main.htm" # Fallback
+
+        # Construct Filing URL
+        # Format: https://www.sec.gov/ix?doc=/Archives/edgar/data/{cik}/{accession_nodash}/{filename}
+        # CIK should be numeric string without leading zeros for the URL path usually, 
+        # but let's try to be safe. If metadata['cik'] key is missing, use Ticker placeholder?
+        # Actually, metadata['cik'] might have leading zeros.
+        
+        cik_str = metadata.get("cik", "0")
+        if cik_str:
+            cik_int = str(int(cik_str)) # Remove leading zeros
+        else:
+            cik_int = "0"
+            
+        filing_url = f"https://www.sec.gov/ix?doc=/Archives/edgar/data/{cik_int}/{accession_nodash}/{primary_doc_filename}"
+
+
         # Extract Sections
         sections = extract_sections_from_text(clean_text)
         
@@ -127,6 +217,34 @@ def process_filing(args):
             record = {
                 "filing_id": original_filename,
                 "company": ticker,
+                "company_name": company_name,
+                "cik": metadata["cik"],
+                "sic": metadata["sic"],
+                "irs_number": metadata["irs_number"],
+                "state_of_inc": metadata["state_of_inc"],
+                "org_name": metadata["org_name"],
+                "sec_file_number": metadata["sec_file_number"],
+                "film_number": metadata["film_number"],
+                
+                # Flattened Business Address
+                "business_street_1": metadata["business_address"].get("street_1"),
+                "business_street_2": metadata["business_address"].get("street_2"),
+                "business_city": metadata["business_address"].get("city"),
+                "business_state": metadata["business_address"].get("state"),
+                "business_zip": metadata["business_address"].get("zip"),
+                "business_phone": metadata["business_address"].get("business_phone"),
+                
+                # Flattened Mail Address
+                "mail_street_1": metadata["mail_address"].get("street_1"),
+                "mail_street_2": metadata["mail_address"].get("street_2"),
+                "mail_city": metadata["mail_address"].get("city"),
+                "mail_state": metadata["mail_address"].get("state"),
+                "mail_state": metadata["mail_address"].get("state"),
+                "mail_zip": metadata["mail_address"].get("zip"),
+
+                # Constructed Filing URL
+                "filing_url": filing_url,
+
                 "year": int(year) if year.isdigit() else year,
                 "section_id": sec_id,
                 "content": sec_content
@@ -177,6 +295,7 @@ def main():
             # Infer metadata from path
             # path: .../sgml/2020/AAPL/10-K/0000.../full-submission.txt
             parts = root.split(os.sep)
+            # print(f"Checking {root}")
             
             # Try to find Year and Ticker in path
             # We know "10-K" is likely in path
@@ -187,9 +306,11 @@ def main():
                 
                 curr_ticker = parts[idx-1]
                 curr_year = parts[idx-2]
+                # print(f"Found: Ticker={curr_ticker}, Year={curr_year}")
                 
                 # Apply filters
                 if args.ticker and args.ticker.upper() != curr_ticker.upper():
+                    # print(f"Skipping {curr_ticker} != {args.ticker}")
                     continue
                 if args.year and str(args.year) != str(curr_year):
                     continue

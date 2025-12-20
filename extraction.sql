@@ -7,6 +7,26 @@ FROM
       SELECT
         filing_id,
         company,
+        company_name,
+        cik,
+        sic,
+        irs_number,
+        state_of_inc,
+        org_name,
+        sec_file_number,
+        film_number,
+        business_street_1,
+        business_street_2,
+        business_city,
+        business_state,
+        business_zip,
+        business_phone,
+        mail_street_1,
+        mail_street_2,
+        mail_city,
+        mail_state,
+        mail_zip,
+        filing_url,
         year,
         section_id,
         content,
@@ -32,7 +52,7 @@ FROM
       FROM
         `sec_filings.sections`
       WHERE
-        section_id IN ('Item 1.', 'Item 1A.', 'Item 7.')
+        section_id IN ('Item 1.', 'Item 1A.', 'Item 3.', 'Item 7.', 'Item 7A.')
     ),
     STRUCT(
       0.2 AS temperature,

@@ -3,27 +3,27 @@ CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
     sec_filings.nodes_company
       KEY (id)
       LABEL Company
-      PROPERTIES (id, year),
+      PROPERTIES (id, label, cik, sic, irs_number, state_of_inc, org_name, sec_file_number, film_number, business_street_1, business_street_2, business_city, business_state, business_zip, business_phone, mail_street_1, mail_street_2, mail_city, mail_state, mail_zip),
 
     sec_filings.nodes_market
       KEY (id)
       LABEL Market
-      PROPERTIES (id, year, evidence),
+      PROPERTIES (id, label, year, section, link, evidence),
 
     sec_filings.nodes_risk
       KEY (id)
       LABEL Risk
-      PROPERTIES (id, year, description),
+      PROPERTIES (id, label, year, section, link, description),
 
     sec_filings.nodes_opportunity
       KEY (id)
       LABEL Opportunity
-      PROPERTIES (id, year, description),
+      PROPERTIES (id, label, year, section, link, description),
 
     sec_filings.nodes_competitor
       KEY (id)
       LABEL Competitor
-      PROPERTIES (id, year, relationship)
+      PROPERTIES (id, label, year, section, link, relationship)
   )
   EDGE TABLES (
     sec_filings.edges_entering
@@ -60,5 +60,5 @@ CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
       KEY (edge_id)
       SOURCE KEY (source_node) REFERENCES nodes_company (id)
       DESTINATION KEY (target_node) REFERENCES nodes_competitor (id)
-      LABEL COMPETES_WITH,
+      LABEL COMPETES_WITH
   );
