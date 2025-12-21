@@ -52,7 +52,7 @@ FROM
       FROM
         `sec_filings.sections_staging`
       WHERE
-        section_id IN ('Item 1.', 'Item 1A.', 'Item 3.', 'Item 7.', 'Item 7A.')
+        section_id IN ('Item 1.', 'Item 1A.', 'Item 7.')
     ),
     STRUCT(
       0.2 AS temperature,
