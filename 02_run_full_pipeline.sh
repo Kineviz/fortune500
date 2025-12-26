@@ -4,8 +4,8 @@ set -e
 # Parse optional ticker argument (default to *)
 TICKER=${1:-*}
 
-echo "1. Uploading JSONL files to GCS..."
-gsutil -m rsync -r data/json gs://kineviz_fortune500_sec_filing/json
+# echo "1. Uploading JSONL files to GCS..."
+# gsutil -m rsync -r data/json gs://kineviz_fortune500_sec_filing/json
 
 # Use explicit schema to prevent INT64 detection for phone/numbers
 SCHEMA="filing_id:STRING,company:STRING,company_name:STRING,cik:STRING,sic:STRING,irs_number:STRING,state_of_inc:STRING,org_name:STRING,sec_file_number:STRING,film_number:STRING,business_street_1:STRING,business_street_2:STRING,business_city:STRING,business_state:STRING,business_zip:STRING,business_phone:STRING,mail_street_1:STRING,mail_street_2:STRING,mail_city:STRING,mail_state:STRING,mail_zip:STRING,filing_url:STRING,year:INTEGER,section_id:STRING,content:STRING"
@@ -116,6 +116,9 @@ cat 05_create_graph.sql | bq query --use_legacy_sql=false --location=US
 
 echo "5. Preparing Node/Edge Tables..."
 cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
+
+echo "5.1. Adding market action to nodes_market table..."
+cat 05_1_add_action_to_market.sql | bq query --use_legacy_sql=false --location=US
 
 echo "6. Creating Property Graph DDL..."
 cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US

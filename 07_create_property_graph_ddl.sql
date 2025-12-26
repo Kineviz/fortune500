@@ -8,7 +8,7 @@ CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
     sec_filings.nodes_market
       KEY (id)
       LABEL Market
-      PROPERTIES (id, label, year, section, link, evidence),
+      PROPERTIES (id, label, year, section, link, evidence, market_action),
 
     sec_filings.nodes_risk
       KEY (id)
