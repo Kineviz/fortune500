@@ -118,7 +118,7 @@ echo "5. Preparing Node/Edge Tables..."
 cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
 
 echo "5.1. Adding market action to nodes_market table..."
-cat 05_1_add_action_to_market.sql | bq query --use_legacy_sql=false --location=US
+cat 06_1_add_action_to_market.sql | bq query --use_legacy_sql=false --location=US
 
 echo "6. Creating Property Graph DDL..."
 cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
