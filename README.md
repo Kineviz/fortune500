@@ -12,6 +12,8 @@ This tool was built from scratch to bypass common anti-bot restrictions and impr
 - **Flexible Filtering**:
     - Filter by specific year (`--year 2024`)
     - Filter by last N years (`--last-n-years 3`)
+    - **Crawl specific company by CIK** (`--cik 0000320193`)
+    - **Crawl specific company by Ticker** (`--ticker AAPL`)
 - **Dry Run**: Preview what would be downloaded without saving files (`--dry-run`).
 
 ## Dependencies
@@ -30,14 +32,25 @@ pip install pandas requests beautifulsoup4 thefuzz tqdm
 
 ## Usage
 
-Run the `scraper.py` script from the command line.
+Run the `00.0_scraper.py` script from the command line.
 
 ### Basic Usage
 
 Download filings for the top 10 companies for the current year:
-
 ```bash
-python scraper.py --limit 10
+python 00.0_scraper.py --limit 10
+```
+
+### Crawl Specific Company (Skips list.csv)
+
+**By Ticker:**
+```bash
+python 00.0_scraper.py --ticker AAPL --year 2024
+```
+
+**By CIK:**
+```bash
+python 00.0_scraper.py --cik 0000320193 --year 2024
 ```
 
 ### Advanced Usage
@@ -45,39 +58,39 @@ python scraper.py --limit 10
 **Filter by Year:**
 Download filings for the top 20 companies for the year 2023:
 ```bash
-python scraper.py --limit 20 --year 2023
+python 00.0_scraper.py --limit 20 --year 2023
 ```
 
 **Filter by Last N Years:**
 Download filings for the top 50 companies for the last 5 years:
 ```bash
-python scraper.py --limit 50 --last-n-years 5
+python 00.0_scraper.py --limit 50 --last-n-years 5
 ```
 
 **Dry Run (Simulation):**
 See what would be downloaded without actually downloading/saving:
 ```bash
-python scraper.py --limit 1 --year 2024 --dry-run
+python 00.0_scraper.py --limit 1 --year 2024 --dry-run
 ```
 
 **Custom Output Directory:**
 Save filings to a specific folder:
 ```bash
-python scraper.py --limit 10 --output-dir my_custom_folder
+python 00.0_scraper.py --limit 10 --output-dir my_custom_folder
 ```
 (Default is `sec-edgar-filings`)
 
 **Concurrency:**
 Adjust the number of worker threads (default is 5):
 ```bash
-python scraper.py --workers 10
+python 00.0_scraper.py --workers 10
 ```
 
 ### All Parameters Example
 
 Run with all options combined:
 ```bash
-python scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
+python 00.0_scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
 ```
 
 ## Output Structure
@@ -120,23 +133,23 @@ Convert the raw SGML filings into clean, readable Markdown documents.
 
 ### Usage
 
-Run `parser.py` to process the downloaded filings.
+Run `00.1_parser.py` to process the downloaded filings.
 
 **Basic Usage:**
 Process all filings in `data/sgml` and save to `data/markdown`:
 ```bash
-python parser.py --input_base data/sgml --output_base data/markdown
+python 00.1_parser.py --input_base data/sgml --output_base data/markdown
 ```
 
 **Parallel Processing:**
 Use 8 worker processes to speed up parsing:
 ```bash
-python parser.py --workers 8
+python 00.1_parser.py --workers 8
 ```
 
 **Custom Paths:**
 ```bash
-python parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
+python 00.1_parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
 ```
 
 ## Output Structure
@@ -160,23 +173,23 @@ Extract structured sections (Item 1, Item 1A, Item 7, etc.) from the raw `full-s
 
 ### Usage
 
-Run `extract_sections.py` to process the SGML/Text filings.
+Run `01_extract_sections.py` to process the SGML/Text filings.
 
 **Basic Usage:**
 Process all filings in `data/sgml` and save to `data/json`:
 ```bash
-python extract_sections.py
+python 01_extract_sections.py
 ```
 
 **Specific Ticker/Year:**
 Process only AAPL for 2023:
 ```bash
-python extract_sections.py --ticker AAPL --year 2023
+python 01_extract_sections.py --ticker AAPL --year 2023
 ```
 
 **Custom Paths:**
 ```bash
-python extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
+python 01_extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
 ```
 
 ### Output Structure
@@ -206,7 +219,7 @@ A complete workflow to transform unstructured 10-K text into a queried Property 
 This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors, then transforms these insights into a compliant SQL/PGQ Property Graph.
 
 ### 1. AI Insight Extraction
-**Script**: `extraction.sql`
+**Script**: `04_extraction.sql`
 
 Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
 - **Input**: `sec_filings.sections` (10-K text chunks)
@@ -214,16 +227,16 @@ Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
 - **Key Features**: strict JSON validation, zero-shot entity extraction.
 
 ### 2. Graph Transformation & Normalization
-**Scripts**: `create_graph.sql`, `prepare_property_graph.sql`
+**Scripts**: `05_create_graph.sql`, `06_prepare_property_graph.sql`
 
-1.  **Flattening (`create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
-2.  **Normalization (`prepare_property_graph.sql`)**:
+1.  **Flattening (`05_create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
+2.  **Normalization (`06_prepare_property_graph.sql`)**:
     -   Splits the flat edges into distinct **Node Tables**: `nodes_company`, `nodes_market`, `nodes_risk`, etc.
     -   Creates **Edge Tables**: `edges_entering`, `edges_faces_risk`, etc.
     -   **Schema Refinement**: Moves "properties" (descriptions, evidence, year) from the Edges to the Nodes to create "Lean Edges, Rich Nodes".
 
 ### 3. Property Graph Creation (DDL)
-**Script**: `create_property_graph_ddl.sql`
+**Script**: `07_create_property_graph_ddl.sql`
 
 Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph object `sec_filings.SecGraph`.
 -   **Nodes**: Defined with semantic properties (e.g., `Market` nodes have `evidence` and `year`).
@@ -233,33 +246,36 @@ Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph ob
 
 ### Usage
 
-You can use the helper script `run_full_pipeline.sh` for an end-to-end execution.
+You can use the helper script `02_run_full_pipeline.sh` for an end-to-end execution.
 
 **1. Full Load (Reset Table):**
 This loads **ALL** JSONL files from the GCS bucket (`*/*/sections.jsonl`) and **REPLACES** the entire BigQuery table.
 ```bash
-./run_full_pipeline.sh
+./02_run_full_pipeline.sh
 ```
 
 **2. Incremental Load (Specific Company):**
 This loads **ONLY** the specified company (e.g., `AAPL`). It first **DELETES** existing rows for that company and then **APPENDS** the new data. Existing data for other companies remains untouched.
 ```bash
-./run_full_pipeline.sh AAPL
+./02_run_full_pipeline.sh AAPL
 ```
 
 **Alternative: Manual Step-by-Step:**
 ```bash
 # 1. Extract Insights with AI
-bq query --use_legacy_sql=false --location=US "$(cat extraction.sql)"
+bq query --use_legacy_sql=false --location=US "$(cat 04_extraction.sql)"
 
 # 2. Transform to Graph Edges
-cat create_graph.sql | bq query --use_legacy_sql=false --location=US
+cat 05_create_graph.sql | bq query --use_legacy_sql=false --location=US
 
 # 3. Create Physical Node/Edge Tables
-cat prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
+cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
 
 # 4. Create Property Graph Object
-cat create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
+cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
+
+# (Optional) Merge legacy insights from sec_filings_yun
+./merge_yun_to_master.sh
 ```
 
 ### Querying the Graph (GQL)

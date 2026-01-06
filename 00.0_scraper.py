@@ -42,7 +42,9 @@ class RateLimiter:
                     time.sleep(wait_time)
 
 class SECScraper:
-    def __init__(self, limit=10, year=None, last_n_years=None, workers=5, output_dir="sec-edgar-filings", headless=True, dry_run=False):
+    def __init__(self, limit=10, year=None, last_n_years=None, workers=5, output_dir="sec-edgar-filings", headless=True, dry_run=False, cik=None, ticker=None):
+        self.cik = cik
+        self.ticker = ticker
         self.limit = limit
         self.year = year
         self.last_n_years = last_n_years
@@ -92,23 +94,47 @@ class SECScraper:
     async def run(self):
         self.fetch_tickers()
         
-        # Load Fortune 500
-        try:
-            f500_df = pd.read_csv("list.csv")
-        except FileNotFoundError:
-            print("Error: list.csv not found.")
-            return
+        if self.cik or self.ticker:
+            # Handle single CIK/Ticker mode
+            if self.cik:
+                cik_padded = str(self.cik).zfill(10)
+                match = self.tickers_df[self.tickers_df['cik_str'].astype(str).str.zfill(10) == cik_padded]
+            else:
+                ticker_upper = self.ticker.upper()
+                match = self.tickers_df[self.tickers_df['ticker'] == ticker_upper]
 
-        target_companies = f500_df.head(self.limit)
-        
-        print(f"Starting crawl for {len(target_companies)} companies with {self.workers} workers...")
+            if not match.empty:
+                row = {
+                    'Company': match.iloc[0]['title'],
+                    'Ticker': match.iloc[0]['ticker'],
+                    'CIK': str(match.iloc[0]['cik_str']).zfill(10)
+                }
+            else:
+                if self.cik:
+                    val = str(self.cik).zfill(10)
+                    row = {'Company': f"CIK {val}", 'Ticker': val, 'CIK': val}
+                else:
+                    print(f"Error: Ticker {self.ticker} not found in SEC database.")
+                    return
+
+            target_companies = [row]
+        else:
+            # Load Fortune 500
+            try:
+                f500_df = pd.read_csv("list.csv")
+                target_companies = [row for _, row in f500_df.head(self.limit).iterrows()]
+            except FileNotFoundError:
+                print("Error: list.csv not found.")
+                return
+
+        print(f"Starting crawl for {len(target_companies)} unit(s) with {self.workers} workers...")
         
         # Use ThreadPoolExecutor for blocking requests
         loop = asyncio.get_running_loop()
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as pool:
             tasks = []
-            for _, row in target_companies.iterrows():
+            for row in target_companies:
                 tasks.append(loop.run_in_executor(pool, self.process_company, row))
             
             for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scraping"):
@@ -128,8 +154,12 @@ class SECScraper:
         return requests.get(url, headers=headers, stream=stream, timeout=timeout)
 
     def process_company(self, row):
-        company_name = row['Company']
-        ticker, cik = self.resolve_ticker(company_name)
+        company_name = row.get('Company')
+        cik = row.get('CIK')
+        ticker = row.get('Ticker')
+        
+        if not cik:
+            ticker, cik = self.resolve_ticker(company_name)
         
         if not ticker:
             return f"Skipped {company_name}: No match"
@@ -250,6 +280,8 @@ if __name__ == "__main__":
     parser.add_argument("--last-n-years", type=int)
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--output-dir", type=str, default="test")
+    parser.add_argument("--cik", type=str, help="Specify a single CIK to process (skips list.csv)")
+    parser.add_argument("--ticker", type=str, help="Specify a single Ticker to process (skips list.csv)")
     parser.add_argument("--headless", action="store_true", default=True) # Default headless
     parser.add_argument("--no-headless", action="store_false", dest="headless")
     parser.add_argument("--dry-run", action="store_true")
@@ -263,7 +295,9 @@ if __name__ == "__main__":
         workers=args.workers,
         output_dir=args.output_dir,
         headless=args.headless,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        cik=args.cik,
+        ticker=args.ticker
     )
     
     asyncio.run(scraper.run())

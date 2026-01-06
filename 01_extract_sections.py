@@ -177,6 +177,14 @@ def process_filing(args):
         accession_number = os.path.basename(os.path.dirname(filepath))
         accession_nodash = accession_number.replace('-', '')
 
+        # EXTRACT FILING YEAR FROM HEADER
+        # CONFORMED PERIOD OF REPORT:	20211231
+        period_match = re.search(r'CONFORMED PERIOD OF REPORT:\s+(\d{4})', header_content)
+        if period_match:
+            extracted_year = period_match.group(1)
+        else:
+            extracted_year = str(year) # Fallback to path year if extraction fails
+
         # Extract Primary Document Filename
         # Look for <FILENAME> in the same 10-K document block (sub_content)
         # It usually appears after <TYPE> and before <TEXT>
@@ -185,10 +193,6 @@ def process_filing(args):
 
         # Construct Filing URL
         # Format: https://www.sec.gov/ix?doc=/Archives/edgar/data/{cik}/{accession_nodash}/{filename}
-        # CIK should be numeric string without leading zeros for the URL path usually, 
-        # but let's try to be safe. If metadata['cik'] key is missing, use Ticker placeholder?
-        # Actually, metadata['cik'] might have leading zeros.
-        
         cik_str = metadata.get("cik", "0")
         if cik_str:
             cik_int = str(int(cik_str)) # Remove leading zeros
@@ -205,7 +209,7 @@ def process_filing(args):
             return None
             
         # Prepare Output
-        output_dir = os.path.join(output_base, ticker, str(year))
+        output_dir = os.path.join(output_base, ticker, extracted_year)
         os.makedirs(output_dir, exist_ok=True)
         output_file = os.path.join(output_dir, "sections.jsonl")
         
@@ -245,7 +249,7 @@ def process_filing(args):
                 # Constructed Filing URL
                 "filing_url": filing_url,
 
-                "year": int(year) if year.isdigit() else year,
+                "year": int(extracted_year),
                 "section_id": sec_id,
                 "content": sec_content
             }
@@ -256,7 +260,7 @@ def process_filing(args):
             for r in records:
                 f_out.write(json.dumps(r) + '\n')
                 
-        return f"{ticker}-{year}"
+        return f"{ticker}-{extracted_year}"
         
     except Exception as e:
         print(f"Error processing {filepath}: {e}")
@@ -301,16 +305,18 @@ def main():
             # We know "10-K" is likely in path
             if "10-K" in parts:
                 idx = parts.index("10-K")
-                # Ticker should be idx-1
-                # Year should be idx-2
-                
+                # Ticker should be the parent of 10-K
                 curr_ticker = parts[idx-1]
-                curr_year = parts[idx-2]
-                # print(f"Found: Ticker={curr_ticker}, Year={curr_year}")
+                
+                # Try to find Year in path as well (either parent of Ticker or child of Accession etc)
+                # But we'll rely on content extraction for the final output path.
+                # We just need a candidate year for filtering.
+                curr_year = "unknown"
+                if idx >= 2 and len(parts[idx-2]) == 4 and parts[idx-2].isdigit():
+                    curr_year = parts[idx-2]
                 
                 # Apply filters
                 if args.ticker and args.ticker.upper() != curr_ticker.upper():
-                    # print(f"Skipping {curr_ticker} != {args.ticker}")
                     continue
                 if args.year and str(args.year) != str(curr_year):
                     continue
