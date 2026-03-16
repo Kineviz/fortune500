@@ -1,4 +1,4 @@
-# Fortune 500 SEC Filing Scraper (Custom Edition)
+# Fortune 500 SEC Filings Pipeline (Custom Edition)
 
 A high-performance, custom-built Python scraper to download 10-K and 10-Q filings for Fortune 500 companies from the SEC EDGAR database.
 
