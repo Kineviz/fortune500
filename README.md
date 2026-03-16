@@ -1,5 +1,7 @@
 # Fortune 500 SEC Filings Pipeline (Custom Edition)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kineviz/fortune500/blob/main/pipeline.ipynb)
+
 A high-performance, custom-built Python scraper to download 10-K and 10-Q filings for Fortune 500 companies from the SEC EDGAR database.
 
 This tool was built from scratch to bypass common anti-bot restrictions and improve performance over standard libraries. It uses `requests` and `BeautifulSoup` with `asyncio` for concurrent downloading.
