@@ -1,4 +1,4 @@
-CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
+CREATE OR REPLACE PROPERTY GRAPH sec_filings.Fortune500Graph
   NODE TABLES (
     sec_filings.nodes_company
       KEY (id)
