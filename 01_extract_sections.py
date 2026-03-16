@@ -291,6 +291,7 @@ def main():
     # Let's adjust walker to be generic or specific to observed structure.
     
     input_base = os.path.abspath(args.input_base)
+    output_base = os.path.abspath(args.output_base)
     
     print(f"Scanning {input_base}...")
     
@@ -322,7 +323,7 @@ def main():
                     continue
                     
                 filepath = os.path.join(root, "full-submission.txt")
-                tasks.append((filepath, args.output_base, curr_ticker, curr_year))
+                tasks.append((filepath, output_base, curr_ticker, curr_year))
 
     print(f"Found {len(tasks)} filings to process.")
     
