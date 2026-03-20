@@ -1,3 +1,9 @@
+-- 0. Configure the Generative AI Model linking to Vertex AI
+-- NOTE: Change `us.vertex_ai_connection` if you used a different name for your BigQuery cloud resource connection.
+CREATE OR REPLACE MODEL `sec_filings.gemini_pro_latest`
+  REMOTE WITH CONNECTION `us.vertex_ai_connection`
+  OPTIONS (ENDPOINT = 'gemini_pro_latest');
+
 -- 1. sections (The master table accumulating all raw data)
 CREATE OR REPLACE TABLE sec_filings.sections
 (
@@ -32,7 +38,7 @@ CREATE OR REPLACE TABLE sec_filings.sections
 CREATE OR REPLACE TABLE sec_filings.insights AS
 SELECT * FROM 
   ML.GENERATE_TEXT(
-    MODEL `sec_filings.gemini_pro`,
+    MODEL `sec_filings.gemini_pro_latest`,
     (SELECT 'dummy' AS prompt, * FROM sec_filings.sections LIMIT 0), 
     STRUCT(0.2 AS temperature, 8192 AS max_output_tokens, FALSE AS flatten_json_output)
   )

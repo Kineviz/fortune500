@@ -2,7 +2,7 @@ INSERT INTO sec_filings.insights
 SELECT *
 FROM
   ML.GENERATE_TEXT(
-    MODEL `sec_filings.gemini_pro`,
+    MODEL `sec_filings.gemini_pro_latest`,
     (
       SELECT
         CONCAT(
