@@ -1,0 +1,260 @@
+# Fortune 500 SEC Filings - Manual Scripts Guide
+
+This guide provides instructions for running the individual components of the pipeline from the command line, as an alternative to using the Jupyter Notebook.
+
+## 1. SEC EDGAR Scraper (`00.0_scraper.py`)
+
+Run the `00.0_scraper.py` script from the command line.
+
+### Basic Usage
+
+Download filings for the top 10 companies for the current year:
+```bash
+python 00.0_scraper.py --limit 10
+```
+
+### Crawl Specific Company (Skips list.csv)
+
+**By Ticker:**
+```bash
+python 00.0_scraper.py --ticker AAPL --year 2024
+```
+
+**By CIK:**
+```bash
+python 00.0_scraper.py --cik 0000320193 --year 2024
+```
+
+### Advanced Usage
+
+**Filter by Year:**
+Download filings for the top 20 companies for the year 2023:
+```bash
+python 00.0_scraper.py --limit 20 --year 2023
+```
+
+**Filter by Last N Years:**
+Download filings for the top 50 companies for the last 5 years:
+```bash
+python 00.0_scraper.py --limit 50 --last-n-years 5
+```
+
+**Dry Run (Simulation):**
+See what would be downloaded without actually downloading/saving:
+```bash
+python 00.0_scraper.py --limit 1 --year 2024 --dry-run
+```
+
+**Custom Output Directory:**
+Save filings to a specific folder:
+```bash
+python 00.0_scraper.py --limit 10 --output-dir my_custom_folder
+```
+(Default is `sec-edgar-filings`)
+
+**Concurrency:**
+Adjust the number of worker threads (default is 5):
+```bash
+python 00.0_scraper.py --workers 10
+```
+
+### All Parameters Example
+
+Run with all options combined:
+```bash
+python 00.0_scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
+```
+
+### Scraper Output Structure
+
+Filings are saved in the following directory structure:
+
+```
+data/
+├── sgml
+    ├── [Ticker]
+    │   ├── 10-K
+    │   │   └── [Accession Number]
+    │   │       └── full-submission.txt
+    │   └── 10-Q
+    │       └── [Accession Number]
+    │           └── full-submission.txt
+```
+
+Example:
+```
+data/
+├── WMT
+│   ├── 10-K
+│   │   └── 0000104169-24-000056
+│   │       └── full-submission.txt
+...
+```
+
+
+## 2. Filing Parser (`00.1_parser.py`)
+
+Convert the raw SGML filings into clean, readable Markdown documents.
+
+### Features
+- **SGML to Markdown**: Converts messy SGML/HTML into structured Markdown.
+- **Strict Filtering**: Extracts *only* the main filing (`full-submission.md`), proper images (`.jpg`, `.gif`), and spreadsheets (`.xlsx`, `.csv`). Filtering out XML trash and other noise.
+- **Parallel Processing**: Uses multiple CPU cores for fast parallel parsing (`--workers`).
+- **Resume Capability**: Automatically skips filings that have already been processed (`full-submission.md` exists).
+- **SEC Link**: Adds a direct link to the official SEC filing at the top of the document.
+
+### Usage
+
+Run `00.1_parser.py` to process the downloaded filings.
+
+**Basic Usage:**
+Process all filings in `data/sgml` and save to `data/markdown`:
+```bash
+python 00.1_parser.py --input_base data/sgml --output_base data/markdown
+```
+
+**Parallel Processing:**
+Use 8 worker processes to speed up parsing:
+```bash
+python 00.1_parser.py --workers 8
+```
+
+**Custom Paths:**
+```bash
+python 00.1_parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
+```
+
+### Parser Output Structure
+
+The scraper produces `data/sgml/`, and the parser produces `data/markdown/`.
+
+```
+data/markdown/
+├── [Ticker]
+│   ├── 10-K
+│   │   └── [Accession Number]
+│       │   ├── full-submission.md   (Main Document)
+│       │   ├── Financial_Report.xlsx
+│       │   ├── graphic1.jpg
+│       │   └── ...
+```
+
+## 3. Section Extraction (`01_extract_sections.py`)
+
+Extract structured sections (Item 1, Item 1A, Item 7, etc.) from the raw `full-submission.txt` (or cleaned HTML) into JSONL format. This prepares the data for AI processing.
+
+### Usage
+
+Run `01_extract_sections.py` to process the SGML/Text filings.
+
+**Basic Usage:**
+Process all filings in `data/sgml` and save to `data/json`:
+```bash
+python 01_extract_sections.py
+```
+
+**Specific Ticker/Year:**
+Process only AAPL for 2023:
+```bash
+python 01_extract_sections.py --ticker AAPL --year 2023
+```
+
+**Custom Paths:**
+```bash
+python 01_extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
+```
+
+### Extractor Output Structure
+
+The script produces `sections.jsonl` files:
+
+```
+data/json/
+├── [Ticker]
+│   ├── [Year]
+│   │   └── sections.jsonl
+```
+
+Each line in `sections.jsonl` is a JSON object containing:
+- `filing_id`: Original filename
+- `company`: Ticker symbol
+- `year`: Filing year
+- `section_id`: The extracted section header (e.g., "Item 1. Business")
+- `content`: The text content of that section
+
+## 4. BigQuery Property Graph Pipeline (SQL Scripts)
+
+A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction.
+
+### Overview
+
+This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors, then transforms these insights into a compliant SQL/PGQ Property Graph.
+
+### AI Insight Extraction
+**Script**: `04_extraction.sql`
+
+Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
+- **Input**: `sec_filings.sections` (10-K text chunks)
+- **Output**: `sec_filings.insights` (Structured JSON in `ml_generate_text_result`)
+- **Key Features**: strict JSON validation, zero-shot entity extraction.
+
+### Graph Transformation & Normalization
+**Scripts**: `05_create_graph.sql`, `06_prepare_property_graph.sql`
+
+1.  **Flattening (`05_create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
+2.  **Normalization (`06_prepare_property_graph.sql`)**:
+    -   Splits the flat edges into distinct **Node Tables**: `nodes_company`, `nodes_market`, `nodes_risk`, etc.
+    -   Creates **Edge Tables**: `edges_entering`, `edges_faces_risk`, etc.
+    -   **Schema Refinement**: Moves "properties" (descriptions, evidence, year) from the Edges to the Nodes to create "Lean Edges, Rich Nodes".
+
+### Property Graph Creation (DDL)
+**Script**: `07_create_property_graph_ddl.sql`
+
+Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph object `sec_filings.SecGraph`.
+-   **Nodes**: Defined with semantic properties (e.g., `Market` nodes have `evidence` and `year`).
+-   **Edges**: Defined as pure relationships with no properties, linking the Source and Destination keys.
+
+### Full Pipeline Execution (Helper Script)
+
+You can use the helper script `02_run_full_pipeline.sh` for an end-to-end execution.
+
+**1. Full Load (Reset Table):**
+This loads **ALL** JSONL files from the GCS bucket (`*/*/sections.jsonl`) and **REPLACES** the entire BigQuery table.
+```bash
+./02_run_full_pipeline.sh
+```
+
+**2. Incremental Load (Specific Company):**
+This loads **ONLY** the specified company (e.g., `AAPL`). It first **DELETES** existing rows for that company and then **APPENDS** the new data. Existing data for other companies remains untouched.
+```bash
+./02_run_full_pipeline.sh AAPL
+```
+
+**Alternative: Manual Step-by-Step:**
+```bash
+# 1. Extract Insights with AI
+bq query --use_legacy_sql=false --location=US "$(cat 04_extraction.sql)"
+
+# 2. Transform to Graph Edges
+cat 05_create_graph.sql | bq query --use_legacy_sql=false --location=US
+
+# 3. Create Physical Node/Edge Tables
+cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
+
+# 4. Create Property Graph Object
+cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
+
+# (Optional) Merge legacy insights from sec_filings_yun
+./merge_yun_to_master.sh
+```
+
+### Querying the Graph (GQL)
+
+Once created, you can query the graph using standard GQL directly in BigQuery:
+
+```sql
+GRAPH sec_filings.SecGraph
+MATCH (c:Company)-[:ENTERING]->(m:Market)
+WHERE m.year = 2020
+RETURN c.id, m.id, m.evidence
+```

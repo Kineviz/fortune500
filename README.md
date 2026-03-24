@@ -1,295 +1,58 @@
 # Fortune 500 SEC Filings Pipeline (Custom Edition)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kineviz/fortune500/blob/main/pipeline.ipynb)
+A high-performance, custom-built Python scraper to download 10-K and 10-Q filings for Fortune 500 companies from the SEC EDGAR database, combined with a robust workflow that transforms this massive unstructured text directly into a queried Property Graph in Google BigQuery utilizing Vertex AI (Gemini 3.1Pro) for dynamic entity extraction. 
 
-A high-performance, custom-built Python scraper to download 10-K and 10-Q filings for Fortune 500 companies from the SEC EDGAR database.
-
-This tool was built from scratch to bypass common anti-bot restrictions and improve performance over standard libraries. It uses `requests` and `BeautifulSoup` with `asyncio` for concurrent downloading.
 
 ## Features
 
-- **Custom Implementation**: No dependency on `sec-edgar-downloader` or `datamule`. Scrapes SEC "Classic Browse" directly.
-- **High Performance**: Downloads multiple filings concurrently.
-- **Robustness**: Handles ticker resolution and SEC rate limiting (10 req/s compliant).
-- **Flexible Filtering**:
-    - Filter by specific year (`--year 2024`)
-    - Filter by last N years (`--last-n-years 3`)
-    - **Crawl specific company by CIK** (`--cik 0000320193`)
-    - **Crawl specific company by Ticker** (`--ticker AAPL`)
-- **Dry Run**: Preview what would be downloaded without saving files (`--dry-run`).
-
-## Dependencies
-
-- `pandas`
-- `requests`
-- `beautifulsoup4`
-- `thefuzz`
-- `tqdm`
-
-Install them via pip:
-
-```bash
-pip install pandas requests beautifulsoup4 thefuzz tqdm
-```
+- **Custom Python Backing**: Scrapes SEC "Classic Browse" directly with `asyncio`.
+- **Top Tier Performance**: Concurrent downloading, handling resolution and strictly compliant with SEC limiting protocols. 
+- **Flexible Extractor Configurations**: Parse exact years, CIK, Tickers, and automatically skip files via checkpointing.
+- **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competiments) organically into JSON structures using `ML.GENERATE_TEXT`.
+- **Intelligent Graph Creation**: Seamlessly takes extraction tables into Node/Edge graphs to visualize the data immediately in BigQuery.
 
 ## Usage
 
-Run the `00.0_scraper.py` script from the command line.
+### Recommended Method: Colab Notebook
 
-### Basic Usage
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kineviz/fortune500/blob/main/pipeline.ipynb)
 
-Download filings for the top 10 companies for the current year:
-```bash
-python 00.0_scraper.py --limit 10
-```
+The absolute easiest way to execute the **entire** end-to-end pipeline is by launching the **`pipeline.ipynb`** notebook! We strongly suggest running this inside Google Colab using the button above.
 
-### Crawl Specific Company (Skips list.csv)
+### 💻 Advanced Method: Specific Command Line Scripts
 
-**By Ticker:**
-```bash
-python 00.0_scraper.py --ticker AAPL --year 2024
-```
+If you want to run the pipeline sequentially (e.g., executing the SEC scraper script, extraction algorithms, or BQ property SQL setups individually), we detailed these advanced individual configurations in the accompanying guide below. 
 
-**By CIK:**
-```bash
-python 00.0_scraper.py --cik 0000320193 --year 2024
-```
-
-### Advanced Usage
-
-**Filter by Year:**
-Download filings for the top 20 companies for the year 2023:
-```bash
-python 00.0_scraper.py --limit 20 --year 2023
-```
-
-**Filter by Last N Years:**
-Download filings for the top 50 companies for the last 5 years:
-```bash
-python 00.0_scraper.py --limit 50 --last-n-years 5
-```
-
-**Dry Run (Simulation):**
-See what would be downloaded without actually downloading/saving:
-```bash
-python 00.0_scraper.py --limit 1 --year 2024 --dry-run
-```
-
-**Custom Output Directory:**
-Save filings to a specific folder:
-```bash
-python 00.0_scraper.py --limit 10 --output-dir my_custom_folder
-```
-(Default is `sec-edgar-filings`)
-
-**Concurrency:**
-Adjust the number of worker threads (default is 5):
-```bash
-python 00.0_scraper.py --workers 10
-```
-
-### All Parameters Example
-
-Run with all options combined:
-```bash
-python 00.0_scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
-```
-
-## Output Structure
-
-Filings are saved in the following directory structure:
-
-```
-data/
-├── sgml
-    ├── [Ticker]
-    │   ├── 10-K
-    │   │   └── [Accession Number]
-    │   │       └── full-submission.txt
-    │   └── 10-Q
-    │       └── [Accession Number]
-    │           └── full-submission.txt
-```
-
-Example:
-```
-data/
-├── WMT
-│   ├── 10-K
-│   │   └── 0000104169-24-000056
-│   │       └── full-submission.txt
-...
-```
+👉 **[Read the Manual Scripts Setup Guide](SCRIPTS.md)**
 
 
-## Filing Parser
+## Visualizing with GraphXR
 
-Convert the raw SGML filings into clean, readable Markdown documents.
+Once your property graph is configured natively inside BigQuery, connect to the dataset with GraphXR using the following sequence:
 
-### Features
-- **SGML to Markdown**: Converts messy SGML/HTML into structured Markdown.
-- **Strict Filtering**: Extracts *only* the main filing (`full-submission.md`), proper images (`.jpg`, `.gif`), and spreadsheets (`.xlsx`, `.csv`). Filtering out XML trash and other noise.
-- **Parallel Processing**: Uses multiple CPU cores for fast parallel parsing (`--workers`).
-- **Resume Capability**: Automatically skips filings that have already been processed (`full-submission.md` exists).
-- **SEC Link**: Adds a direct link to the official SEC filing at the top of the document.
+1. **Create Project**
 
-### Usage
+   ![Create Project](images/01_create_project.png)
 
-Run `00.1_parser.py` to process the downloaded filings.
+2. **Select Name & Database Type (BigQuery)**
+   
+   ![Select Name and Type](images/02_selct%20_name_type_bigquey.png)
 
-**Basic Usage:**
-Process all filings in `data/sgml` and save to `data/markdown`:
-```bash
-python 00.1_parser.py --input_base data/sgml --output_base data/markdown
-```
+3. **Upload Account Key**
+   
+   ![Upload Key](images/03_upload_account_key.png)
 
-**Parallel Processing:**
-Use 8 worker processes to speed up parsing:
-```bash
-python 00.1_parser.py --workers 8
-```
+4. **Select Database**
+   
+   ![Select DB](images/04_select_db.png)
 
-**Custom Paths:**
-```bash
-python 00.1_parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
-```
+5. **Select Region**
+   
+   ![Select Region](images/05_select_region.png)
 
-## Output Structure
-
-The scraper produces `data/sgml/`, and the parser produces `data/markdown/`.
-
-```
-data/markdown/
-├── [Ticker]
-│   ├── 10-K
-│   │   └── [Accession Number]
-│       │   ├── full-submission.md   (Main Document)
-│       │   ├── Financial_Report.xlsx
-│       │   ├── graphic1.jpg
-│       │   └── ...
-```
-
-## Section Extraction
-
-Extract structured sections (Item 1, Item 1A, Item 7, etc.) from the raw `full-submission.txt` (or cleaned HTML) into JSONL format. This prepares the data for AI processing.
-
-### Usage
-
-Run `01_extract_sections.py` to process the SGML/Text filings.
-
-**Basic Usage:**
-Process all filings in `data/sgml` and save to `data/json`:
-```bash
-python 01_extract_sections.py
-```
-
-**Specific Ticker/Year:**
-Process only AAPL for 2023:
-```bash
-python 01_extract_sections.py --ticker AAPL --year 2023
-```
-
-**Custom Paths:**
-```bash
-python 01_extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
-```
-
-### Output Structure
-
-The script produces `sections.jsonl` files:
-
-```
-data/json/
-├── [Ticker]
-│   ├── [Year]
-│   │   └── sections.jsonl
-```
-
-Each line in `sections.jsonl` is a JSON object containing:
-- `filing_id`: Original filename
-- `company`: Ticker symbol
-- `year`: Filing year
-- `section_id`: The extracted section header (e.g., "Item 1. Business")
-- `content`: The text content of that section
-
-## BigQuery Property Graph Pipeline
-
-A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction.
-
-### Overview
-
-This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors, then transforms these insights into a compliant SQL/PGQ Property Graph.
-
-### 1. AI Insight Extraction
-**Script**: `04_extraction.sql`
-
-Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
-- **Input**: `sec_filings.sections` (10-K text chunks)
-- **Output**: `sec_filings.insights` (Structured JSON in `ml_generate_text_result`)
-- **Key Features**: strict JSON validation, zero-shot entity extraction.
-
-### 2. Graph Transformation & Normalization
-**Scripts**: `05_create_graph.sql`, `06_prepare_property_graph.sql`
-
-1.  **Flattening (`05_create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
-2.  **Normalization (`06_prepare_property_graph.sql`)**:
-    -   Splits the flat edges into distinct **Node Tables**: `nodes_company`, `nodes_market`, `nodes_risk`, etc.
-    -   Creates **Edge Tables**: `edges_entering`, `edges_faces_risk`, etc.
-    -   **Schema Refinement**: Moves "properties" (descriptions, evidence, year) from the Edges to the Nodes to create "Lean Edges, Rich Nodes".
-
-### 3. Property Graph Creation (DDL)
-**Script**: `07_create_property_graph_ddl.sql`
-
-Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph object `sec_filings.SecGraph`.
--   **Nodes**: Defined with semantic properties (e.g., `Market` nodes have `evidence` and `year`).
--   **Edges**: Defined as pure relationships with no properties, linking the Source and Destination keys.
-
-### Usage
-
-### Usage
-
-You can use the helper script `02_run_full_pipeline.sh` for an end-to-end execution.
-
-**1. Full Load (Reset Table):**
-This loads **ALL** JSONL files from the GCS bucket (`*/*/sections.jsonl`) and **REPLACES** the entire BigQuery table.
-```bash
-./02_run_full_pipeline.sh
-```
-
-**2. Incremental Load (Specific Company):**
-This loads **ONLY** the specified company (e.g., `AAPL`). It first **DELETES** existing rows for that company and then **APPENDS** the new data. Existing data for other companies remains untouched.
-```bash
-./02_run_full_pipeline.sh AAPL
-```
-
-**Alternative: Manual Step-by-Step:**
-```bash
-# 1. Extract Insights with AI
-bq query --use_legacy_sql=false --location=US "$(cat 04_extraction.sql)"
-
-# 2. Transform to Graph Edges
-cat 05_create_graph.sql | bq query --use_legacy_sql=false --location=US
-
-# 3. Create Physical Node/Edge Tables
-cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
-
-# 4. Create Property Graph Object
-cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
-
-# (Optional) Merge legacy insights from sec_filings_yun
-./merge_yun_to_master.sh
-```
-
-### Querying the Graph (GQL)
-
-Once created, you can query the graph using standard GQL directly in BigQuery:
-
-```sql
-GRAPH sec_filings.SecGraph
-MATCH (c:Company)-[:ENTERING]->(m:Market)
-WHERE m.year = 2020
-RETURN c.id, m.id, m.evidence
-```
+6. **Select Graph**
+   
+   ![Select Graph](images/06_select_graph.png)
 
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)
