@@ -15,11 +15,11 @@ A high-performance, custom-built Python scraper to download 10-K and 10-Q filing
 
 ### 🛑 Before You Begin
 
-Before executing the data pipeline, you need to configure your Google Cloud Platform (GCP) environment. 
+Before executing the data pipeline, you must configure your Google Cloud Platform (GCP) environment. 
 
-1. **Create a Google Cloud Project:** Head over to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project. You will need your project ID to connect the notebook.
-2. **Enable Required APIs:** Make sure to enable both the **BigQuery API** and the **Vertex AI API** for your newly created project. You will need them to query and use the Gemini LLM.
-3. **Create a Cloud Storage Bucket:** The pipeline uploads strictly formatted extracted data before parsing it into the BigQuery graph. Go to **Cloud Storage**, create a new bucket (e.g., `gs://your-project-sec-data`), and keep the name handy, as you will provide it inside the notebook to route the uploaded files.
+1. **Create a Google Cloud Project:** Head over to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project. You will need your **project ID** to connect the notebook.
+2. **Enable Required APIs:** Enable both the **BigQuery API** and the **Vertex AI API** for your newly created project. You will need them to query and use the Gemini LLM.
+3. **Create a Cloud Storage Bucket:** The pipeline uploads strictly formatted extracted data before parsing it into the BigQuery graph. Go to **Cloud Storage** and create a new bucket (e.g., `gs://your-project-sec-data`). Keep the name handy, as you will provide it inside the notebook to route the uploaded files.
 
 ### Recommended Method: Colab Notebook
 
