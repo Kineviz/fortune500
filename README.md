@@ -28,7 +28,17 @@ If you want to run the pipeline sequentially (e.g., executing the SEC scraper sc
 
 ## Visualizing with GraphXR
 
-Once your property graph is configured natively inside BigQuery, connect to the dataset with GraphXR using the following sequence:
+You have two main options for visualizing your graph, depending on your data privacy and deployment needs.
+
+### Alternative 1: GraphXR Explorer for BigQuery (Privacy-First)
+
+If you need to avoid sending sensitive data to Kineviz servers and want the application to run entirely inside your own Google Cloud environment, you can deploy the native BigQuery integration directly from the marketplace.
+
+👉 **[Deploy GraphXR Explorer For BigQuery from Google Marketplace](https://console.cloud.google.com/marketplace/product/kineviz-public/graphxr-explorer-for-bigquery?project=kineviz-bigquery-graph)**
+
+### Alternative 2: Standard GraphXR Portal
+
+Once your property graph is configured natively inside BigQuery, you can also connect directly to the dataset using the standard GraphXR web portal (**[https://graphxr.kineviz.com/](https://graphxr.kineviz.com/)**) with the following configuration sequence:
 
 1. **Create Project**
 
