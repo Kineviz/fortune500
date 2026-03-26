@@ -8,7 +8,7 @@ A high-performance, custom-built Python scraper to download 10-K and 10-Q filing
 - **Custom Python Backing**: Scrapes SEC "Classic Browse" directly with `asyncio`.
 - **Top Tier Performance**: Concurrent downloading, handling resolution and strictly compliant with SEC limiting protocols. 
 - **Flexible Extractor Configurations**: Parse exact years, CIK, Tickers, and automatically skip files via checkpointing.
-- **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competiments) organically into JSON structures using `ML.GENERATE_TEXT`.
+- **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competitions) organically into JSON structures using `AI.GENERATE_TEXT`.
 - **Intelligent Graph Creation**: Seamlessly takes extraction tables into Node/Edge graphs to visualize the data immediately in BigQuery.
 
 ## Usage
@@ -18,8 +18,10 @@ A high-performance, custom-built Python scraper to download 10-K and 10-Q filing
 Before executing the data pipeline, you must configure your Google Cloud Platform (GCP) environment. 
 
 1. **Create a Google Cloud Project:** Head over to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project. You will need your **project ID** to connect the notebook.
-2. **Enable Required APIs:** Enable both the **BigQuery API** and the **Vertex AI API** for your newly created project. You will need them to query and use the Gemini LLM.
-3. **Create a Cloud Storage Bucket:** The pipeline uploads strictly formatted extracted data before parsing it into the BigQuery graph. Go to **Cloud Storage** and create a new bucket (e.g., `gs://your-project-sec-data`). Keep the name handy, as you will provide it inside the notebook to route the uploaded files.
+2. **Enable Required APIs:** Enable both the [BigQuery API](https://console.cloud.google.com/marketplace/product/google/bigquery.googleapis.com) and the [Vertex AI API](https://console.cloud.google.com/marketplace/product/google/aiplatform.googleapis.com) for your newly created project. You will need them to query and use the Gemini LLM.
+3. **Enable Billing:** Ensure that **[Billing is Enabled](https://console.cloud.google.com/billing/enable)** for your project. BigQuery AI functions (Gemini) require an active billing account to execute. *Note: If you have just enabled billing, it can take 3–10 minutes to propagate across all Vertex AI and BigQuery services.*
+4. **Create a BigQuery AI Connection:** To use the Gemini model, create a Cloud Resource Connection named **`vertex_ai_connection`** in the **US** (or your preferred) location. Grant the resulting Service Account the **`roles/aiplatform.user`** (Vertex AI User) role.
+5. **Create a Cloud Storage Bucket:** Use **Cloud Storage** to create a new bucket (e.g., `gs://your-project-sec-data`). This is used for staging JSON extraction data before loading it into the BigQuery graph.
 
 ### Recommended Method: Colab Notebook
 

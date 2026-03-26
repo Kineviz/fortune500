@@ -26,7 +26,7 @@ WITH json_data AS (
     year,
     section_id,
     -- Extract the text content from the Gemini JSON result
-    JSON_VALUE(ml_generate_text_result, '$.candidates[0].content.parts[0].text') as raw_text
+    result as raw_text
    FROM sec_filings.insights
 ),
 parsed_data AS (

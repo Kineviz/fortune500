@@ -1,7 +1,7 @@
 INSERT INTO sec_filings.insights
 SELECT *
 FROM
-  ML.GENERATE_TEXT(
+  AI.GENERATE_TEXT(
     MODEL `sec_filings.gemini_pro_latest`,
     (
       SELECT
@@ -56,7 +56,6 @@ FROM
     ),
     STRUCT(
       0.2 AS temperature,
-      8192 AS max_output_tokens,
-      FALSE AS flatten_json_output
+      8192 AS max_output_tokens
     )
   );
