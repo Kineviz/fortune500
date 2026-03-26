@@ -4,3 +4,5 @@ data
 .venv/
 __pycache__
 .envgen-lang-client-*.json
+entity_resolution/.env
+.env
