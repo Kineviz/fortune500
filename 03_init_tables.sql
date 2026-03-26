@@ -37,7 +37,7 @@ CREATE OR REPLACE TABLE sec_filings.sections
 -- 2. insights (The master table accumulating AI results)
 CREATE OR REPLACE TABLE sec_filings.insights AS
 SELECT * FROM 
-  ML.GENERATE_TEXT(
+  AI.GENERATE_TEXT(
     MODEL `sec_filings.gemini_pro_latest`,
     (SELECT 'dummy' AS prompt, * FROM sec_filings.sections LIMIT 0), 
     STRUCT(0.2 AS temperature, 8192 AS max_output_tokens, FALSE AS flatten_json_output)
