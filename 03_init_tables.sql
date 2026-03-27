@@ -4,7 +4,7 @@ CREATE SCHEMA IF NOT EXISTS sec_filings;
 -- NOTE: Change `us.vertex_ai_connection` if you used a different name for your BigQuery cloud resource connection.
 CREATE OR REPLACE MODEL `sec_filings.gemini_pro_latest`
   REMOTE WITH CONNECTION `us.vertex_ai_connection`
-  OPTIONS (ENDPOINT = 'gemini-3.1-pro-preview');
+  OPTIONS (ENDPOINT = 'gemini-2.5-pro');
 
 -- 1. sections (The master table accumulating all raw data)
 CREATE OR REPLACE TABLE sec_filings.sections
