@@ -34,8 +34,7 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS evidence,
-  reference
+  properties AS evidence
 FROM sec_filings.graph_edges
 WHERE target_label = 'Market' AND target_node IS NOT NULL;
 
@@ -47,8 +46,7 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS description,
-  reference
+  properties AS description
 FROM sec_filings.graph_edges
 WHERE target_label = 'Risk' AND target_node IS NOT NULL;
 
@@ -60,8 +58,7 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS description,
-  reference
+  properties AS description
 FROM sec_filings.graph_edges
 WHERE target_label = 'Opportunity' AND target_node IS NOT NULL;
 
@@ -73,8 +70,7 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS relationship,
-  reference
+  properties AS relationship
 FROM sec_filings.graph_edges
 WHERE target_label = 'Competitor' AND target_node IS NOT NULL;
 
@@ -135,3 +131,130 @@ SELECT
   edge_id AS target_node
 FROM sec_filings.graph_edges
 WHERE edge_type = 'COMPETES_WITH' AND target_node IS NOT NULL;
+
+-- 3. Reference Nodes and Edges
+
+-- Reference Nodes
+CREATE OR REPLACE FUNCTION sec_filings.textFragmentStart(str STRING)
+RETURNS STRING
+LANGUAGE js AS """
+  if (!str) return '';
+  const words = str.trim().split(/\\s+/);
+  if (words.length <= 10) {
+    return encodeURIComponent(str);
+  } else {
+    return encodeURIComponent(words.slice(0, 5).join(' ')) + ',' + encodeURIComponent(words.slice(-5).join(' '));
+  }
+""";
+
+CREATE OR REPLACE TABLE sec_filings.nodes_reference AS
+SELECT
+  TO_HEX(MD5(reference)) AS id,
+  ANY_VALUE(reference) AS text,
+  ANY_VALUE(CONCAT(
+    REPLACE(filing_url, 'ix?doc=/', ''),
+    '#:~:text=',
+    sec_filings.textFragmentStart(CAST(reference AS STRING))
+  )) AS link,
+  ANY_VALUE(year) AS year,
+  ANY_VALUE(section_id) AS section,
+  ANY_VALUE(source_node) AS company,
+  ANY_VALUE(company_name) AS company_name
+FROM sec_filings.graph_edges
+WHERE reference IS NOT NULL AND TRIM(reference) != ''
+GROUP BY 1;
+
+-- Has Reference Edges - Market
+CREATE OR REPLACE TABLE sec_filings.edges_market_has_reference AS
+SELECT
+  CONCAT(edge_id, '_has_ref') AS edge_id,
+  edge_id AS source_node,
+  TO_HEX(MD5(reference)) AS target_node
+FROM sec_filings.graph_edges
+WHERE target_label = 'Market' AND target_node IS NOT NULL AND reference IS NOT NULL AND TRIM(reference) != '';
+
+-- Has Reference Edges - Risk
+CREATE OR REPLACE TABLE sec_filings.edges_risk_has_reference AS
+SELECT
+  CONCAT(edge_id, '_has_ref') AS edge_id,
+  edge_id AS source_node,
+  TO_HEX(MD5(reference)) AS target_node
+FROM sec_filings.graph_edges
+WHERE target_label = 'Risk' AND target_node IS NOT NULL AND reference IS NOT NULL AND TRIM(reference) != '';
+
+-- Has Reference Edges - Opportunity
+CREATE OR REPLACE TABLE sec_filings.edges_opportunity_has_reference AS
+SELECT
+  CONCAT(edge_id, '_has_ref') AS edge_id,
+  edge_id AS source_node,
+  TO_HEX(MD5(reference)) AS target_node
+FROM sec_filings.graph_edges
+WHERE target_label = 'Opportunity' AND target_node IS NOT NULL AND reference IS NOT NULL AND TRIM(reference) != '';
+
+-- Has Reference Edges - Competitor
+CREATE OR REPLACE TABLE sec_filings.edges_competitor_has_reference AS
+SELECT
+  CONCAT(edge_id, '_has_ref') AS edge_id,
+  edge_id AS source_node,
+  TO_HEX(MD5(reference)) AS target_node
+FROM sec_filings.graph_edges
+WHERE target_label = 'Competitor' AND target_node IS NOT NULL AND reference IS NOT NULL AND TRIM(reference) != '';
+
+-- 4. Document and Section Nodes
+
+-- Document Nodes
+CREATE OR REPLACE TABLE sec_filings.nodes_document AS
+SELECT DISTINCT
+  filing_url AS id,
+  year,
+  sec_file_number,
+  film_number,
+  source_node AS company,
+  company_name,
+  cik,
+  filing_url AS link
+FROM sec_filings.graph_edges
+WHERE filing_url IS NOT NULL;
+
+-- Section Nodes
+CREATE OR REPLACE TABLE sec_filings.nodes_section AS
+SELECT DISTINCT
+  CONCAT(filing_url, '#', section_id) AS id,
+  section_id AS label,
+  section_id AS section,
+  source_node AS company,
+  company_name,
+  year,
+  filing_url AS document_id,
+  CONCAT(filing_url, '#', section_id) AS link
+FROM sec_filings.graph_edges
+WHERE filing_url IS NOT NULL AND section_id IS NOT NULL;
+
+-- 5. Document and Section Edges
+
+-- Company FILED Document
+CREATE OR REPLACE TABLE sec_filings.edges_company_filed_document AS
+SELECT DISTINCT
+  CONCAT(source_node, '_filed_', TO_HEX(MD5(filing_url))) AS edge_id,
+  source_node,
+  filing_url AS target_node
+FROM sec_filings.graph_edges
+WHERE filing_url IS NOT NULL;
+
+-- Document CONTAINS Section
+CREATE OR REPLACE TABLE sec_filings.edges_document_contains_section AS
+SELECT DISTINCT
+  CONCAT(filing_url, '_contains_', TO_HEX(MD5(CONCAT(filing_url, '#', section_id)))) AS edge_id,
+  filing_url AS source_node,
+  CONCAT(filing_url, '#', section_id) AS target_node
+FROM sec_filings.graph_edges
+WHERE filing_url IS NOT NULL AND section_id IS NOT NULL;
+
+-- Section CONTAINS Reference
+CREATE OR REPLACE TABLE sec_filings.edges_section_contains_reference AS
+SELECT DISTINCT
+  CONCAT(filing_url, '#', section_id, '_contains_', TO_HEX(MD5(reference))) AS edge_id,
+  CONCAT(filing_url, '#', section_id) AS source_node,
+  TO_HEX(MD5(reference)) AS target_node
+FROM sec_filings.graph_edges
+WHERE filing_url IS NOT NULL AND section_id IS NOT NULL AND reference IS NOT NULL AND TRIM(reference) != '';
