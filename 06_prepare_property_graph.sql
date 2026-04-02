@@ -34,7 +34,8 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS evidence 
+  properties AS evidence,
+  reference
 FROM sec_filings.graph_edges
 WHERE target_label = 'Market' AND target_node IS NOT NULL;
 
@@ -46,7 +47,8 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS description 
+  properties AS description,
+  reference
 FROM sec_filings.graph_edges
 WHERE target_label = 'Risk' AND target_node IS NOT NULL;
 
@@ -58,7 +60,8 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS description 
+  properties AS description,
+  reference
 FROM sec_filings.graph_edges
 WHERE target_label = 'Opportunity' AND target_node IS NOT NULL;
 
@@ -70,7 +73,8 @@ SELECT
   year, 
   section_id AS section, 
   filing_url AS link,
-  properties AS relationship 
+  properties AS relationship,
+  reference
 FROM sec_filings.graph_edges
 WHERE target_label = 'Competitor' AND target_node IS NOT NULL;
 

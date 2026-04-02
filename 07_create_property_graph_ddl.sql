@@ -8,22 +8,22 @@ CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
     sec_filings.nodes_market
       KEY (id)
       LABEL Market
-      PROPERTIES (id, label, year, section, link, evidence, market_action),
+      PROPERTIES (id, label, year, section, link, evidence, market_action, reference),
 
     sec_filings.nodes_risk
       KEY (id)
       LABEL Risk
-      PROPERTIES (id, label, year, section, link, description),
+      PROPERTIES (id, label, year, section, link, description, reference),
 
     sec_filings.nodes_opportunity
       KEY (id)
       LABEL Opportunity
-      PROPERTIES (id, label, year, section, link, description),
+      PROPERTIES (id, label, year, section, link, description, reference),
 
     sec_filings.nodes_competitor
       KEY (id)
       LABEL Competitor
-      PROPERTIES (id, label, year, section, link, relationship)
+      PROPERTIES (id, label, year, section, link, relationship, reference)
   )
   EDGE TABLES (
     sec_filings.edges_entering
