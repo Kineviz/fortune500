@@ -2,7 +2,7 @@ INSERT INTO sec_filings.insights
 SELECT *
 FROM
   AI.GENERATE_TEXT(
-    MODEL `sec_filings.gemini_pro_latest`,
+    MODEL sec_filings.gemini_pro_latest,
     (
       SELECT
         CONCAT(
@@ -50,7 +50,7 @@ FROM
         section_id,
         content
       FROM
-        `sec_filings.sections_staging`
+        sec_filings.sections
       WHERE
         section_id IN ('Item 1.', 'Item 1A.', 'Item 7.')
     ),
