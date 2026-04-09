@@ -8,8 +8,8 @@ A high-performance, custom-built Python scraper to download 10-K and 10-Q filing
 - **Custom Python Backing**: Scrapes SEC "Classic Browse" directly with `asyncio`.
 - **Top Tier Performance**: Concurrent downloading, handling resolution and strictly compliant with SEC limiting protocols. 
 - **Flexible Extractor Configurations**: Parse exact years, CIK, Tickers, and automatically skip files via checkpointing.
-- **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competitions) organically into JSON structures using `AI.GENERATE_TEXT`.
-- **Intelligent Graph Creation**: Seamlessly takes extraction tables into Node/Edge graphs to visualize the data immediately in BigQuery.
+- **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competitions) organically into JSON structures natively inside BigQuery using `AI.GENERATE_TEXT`.
+- **Intelligent Graph Creation**: Seamlessly transforms extraction JSONs into Parquet files, normalizes entities (e.g., deduplicating competitors, categorizing risks), and loads them back into BigQuery to visualize the data immediately as a Property Graph.
 
 ## Usage
 

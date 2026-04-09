@@ -2,27 +2,27 @@
 
 This guide provides instructions for running the individual components of the pipeline from the command line, as an alternative to using the Jupyter Notebook.
 
-## 1. SEC EDGAR Scraper (`00.0_scraper.py`)
+## 1. SEC EDGAR Scraper (`01_scraper.py`)
 
-Run the `00.0_scraper.py` script from the command line.
+Run the `01_scraper.py` script from the command line.
 
 ### Basic Usage
 
 Download filings for the top 10 companies for the current year:
 ```bash
-python 00.0_scraper.py --limit 10
+python 01_scraper.py --limit 10
 ```
 
 ### Crawl Specific Company (Skips list.csv)
 
 **By Ticker:**
 ```bash
-python 00.0_scraper.py --ticker AAPL --year 2024
+python 01_scraper.py --ticker AAPL --year 2024
 ```
 
 **By CIK:**
 ```bash
-python 00.0_scraper.py --cik 0000320193 --year 2024
+python 01_scraper.py --cik 0000320193 --year 2024
 ```
 
 ### Advanced Usage
@@ -30,39 +30,39 @@ python 00.0_scraper.py --cik 0000320193 --year 2024
 **Filter by Year:**
 Download filings for the top 20 companies for the year 2023:
 ```bash
-python 00.0_scraper.py --limit 20 --year 2023
+python 01_scraper.py --limit 20 --year 2023
 ```
 
 **Filter by Last N Years:**
 Download filings for the top 50 companies for the last 5 years:
 ```bash
-python 00.0_scraper.py --limit 50 --last-n-years 5
+python 01_scraper.py --limit 50 --last-n-years 5
 ```
 
 **Dry Run (Simulation):**
 See what would be downloaded without actually downloading/saving:
 ```bash
-python 00.0_scraper.py --limit 1 --year 2024 --dry-run
+python 01_scraper.py --limit 1 --year 2024 --dry-run
 ```
 
 **Custom Output Directory:**
 Save filings to a specific folder:
 ```bash
-python 00.0_scraper.py --limit 10 --output-dir my_custom_folder
+python 01_scraper.py --limit 10 --output-dir my_custom_folder
 ```
 (Default is `sec-edgar-filings`)
 
 **Concurrency:**
 Adjust the number of worker threads (default is 5):
 ```bash
-python 00.0_scraper.py --workers 10
+python 01_scraper.py --workers 10
 ```
 
 ### All Parameters Example
 
 Run with all options combined:
 ```bash
-python 00.0_scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
+python 01_scraper.py --limit 50 --year 2024 --workers 20 --output-dir /tmp/sec_data --dry-run
 ```
 
 ### Scraper Output Structure
@@ -92,7 +92,7 @@ data/
 ```
 
 
-## 2. Filing Parser (`00.1_parser.py`)
+## 2. Filing Parser (`02_parser.py`)
 
 Convert the raw SGML filings into clean, readable Markdown documents.
 
@@ -105,23 +105,23 @@ Convert the raw SGML filings into clean, readable Markdown documents.
 
 ### Usage
 
-Run `00.1_parser.py` to process the downloaded filings.
+Run `02_parser.py` to process the downloaded filings.
 
 **Basic Usage:**
 Process all filings in `data/sgml` and save to `data/markdown`:
 ```bash
-python 00.1_parser.py --input_base data/sgml --output_base data/markdown
+python 02_parser.py --input_base data/sgml --output_base data/markdown
 ```
 
 **Parallel Processing:**
 Use 8 worker processes to speed up parsing:
 ```bash
-python 00.1_parser.py --workers 8
+python 02_parser.py --workers 8
 ```
 
 **Custom Paths:**
 ```bash
-python 00.1_parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
+python 02_parser.py --input_base /path/to/raw_filings --output_base /path/to/clean_markdown
 ```
 
 ### Parser Output Structure
@@ -139,29 +139,29 @@ data/markdown/
 │       │   └── ...
 ```
 
-## 3. Section Extraction (`01_extract_sections.py`)
+## 3. Section Extraction (`03_extract_sections.py`)
 
 Extract structured sections (Item 1, Item 1A, Item 7, etc.) from the raw `full-submission.txt` (or cleaned HTML) into JSONL format. This prepares the data for AI processing.
 
 ### Usage
 
-Run `01_extract_sections.py` to process the SGML/Text filings.
+Run `03_extract_sections.py` to process the SGML/Text filings.
 
 **Basic Usage:**
 Process all filings in `data/sgml` and save to `data/json`:
 ```bash
-python 01_extract_sections.py
+python 03_extract_sections.py
 ```
 
 **Specific Ticker/Year:**
 Process only AAPL for 2023:
 ```bash
-python 01_extract_sections.py --ticker AAPL --year 2023
+python 03_extract_sections.py --ticker AAPL --year 2023
 ```
 
 **Custom Paths:**
 ```bash
-python 01_extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
+python 03_extract_sections.py --input_base /path/to/sgml --output_base /path/to/output_json
 ```
 
 ### Extractor Output Structure
@@ -182,70 +182,60 @@ Each line in `sections.jsonl` is a JSON object containing:
 - `section_id`: The extracted section header (e.g., "Item 1. Business")
 - `content`: The text content of that section
 
-## 4. BigQuery Property Graph Pipeline (SQL Scripts)
+## 4. Parquet Pipeline & BigQuery Graph
 
-A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction.
+A complete workflow to transform unstructured 10-K text into a queried Property Graph in BigQuery, using Vertex AI for insight extraction and Python for entity normalization.
 
 ### Overview
 
-This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors, then transforms these insights into a compliant SQL/PGQ Property Graph.
-
-### AI Insight Extraction
-**Script**: `04_extraction.sql`
-
-Uses `ML.GENERATE_TEXT` to prompt Gemini 2.5 Pro with a specific JSON schema.
-- **Input**: `sec_filings.sections` (10-K text chunks)
-- **Output**: `sec_filings.insights` (Structured JSON in `ml_generate_text_result`)
-- **Key Features**: strict JSON validation, zero-shot entity extraction.
-
-### Graph Transformation & Normalization
-**Scripts**: `05_create_graph.sql`, `06_prepare_property_graph.sql`
-
-1.  **Flattening (`05_create_graph.sql`)**: Parses the complex nested JSON from the LLM into a flat `graph_edges` table containing `source`, `target`, and `edge_type` strings.
-2.  **Normalization (`06_prepare_property_graph.sql`)**:
-    -   Splits the flat edges into distinct **Node Tables**: `nodes_company`, `nodes_market`, `nodes_risk`, etc.
-    -   Creates **Edge Tables**: `edges_entering`, `edges_faces_risk`, etc.
-    -   **Schema Refinement**: Moves "properties" (descriptions, evidence, year) from the Edges to the Nodes to create "Lean Edges, Rich Nodes".
-
-### Property Graph Creation (DDL)
-**Script**: `07_create_property_graph_ddl.sql`
-
-Executes the `CREATE PROPERTY GRAPH` statement to officially define the graph object `sec_filings.SecGraph`.
--   **Nodes**: Defined with semantic properties (e.g., `Market` nodes have `evidence` and `year`).
--   **Edges**: Defined as pure relationships with no properties, linking the Source and Destination keys.
+This pipeline leverages **Gemini 2.5 Pro** directly within BigQuery to extract markets, risks, and competitors. It then exports these insights to run the Python entity normalization locally (e.g., resolving "Walmart Inc." to "Walmart", categorizing risks). Finally, it loads the finalized Parquet files back into BigQuery to construct a compliant SQL/PGQ Property Graph.
 
 ### Full Pipeline Execution (Helper Script)
 
-You can use the helper script `02_run_full_pipeline.sh` for an end-to-end execution.
+You can use the helper script `00_run_full_pipeline.sh` for an end-to-end execution.
 
-**1. Full Load (Reset Table):**
-This loads **ALL** JSONL files from the GCS bucket (`*/*/sections.jsonl`) and **REPLACES** the entire BigQuery table.
+**1. Full Load:**
+This runs the scraper, extraction, python parquet pipeline, entity normalization, GCS upload, BigQuery load, and graph creation.
 ```bash
-./02_run_full_pipeline.sh
+./00_run_full_pipeline.sh
 ```
 
 **2. Incremental Load (Specific Company):**
-This loads **ONLY** the specified company (e.g., `AAPL`). It first **DELETES** existing rows for that company and then **APPENDS** the new data. Existing data for other companies remains untouched.
+This runs the pipeline for a specific company (e.g., `AAPL`).
 ```bash
-./02_run_full_pipeline.sh AAPL
+./00_run_full_pipeline.sh AAPL
 ```
 
-**Alternative: Manual Step-by-Step:**
+### Alternative: Manual Step-by-Step
+
 ```bash
-# 1. Extract Insights with AI
-bq query --use_legacy_sql=false --location=US "$(cat 04_extraction.sql)"
+# 1. Upload sections to GCS and load into BigQuery
+gsutil -m rsync -r data/json gs://your_bucket/json
+cat 04_init_tables.sql | bq query --use_legacy_sql=false --location=US
+# (Load sections.jsonl into BigQuery using python script or bq load)
 
-# 2. Transform to Graph Edges
-cat 05_create_graph.sql | bq query --use_legacy_sql=false --location=US
+# 2. Extract Insights with AI in BigQuery
+cat 05_extraction.sql | bq query --use_legacy_sql=false --location=US
 
-# 3. Create Physical Node/Edge Tables
-cat 06_prepare_property_graph.sql | bq query --use_legacy_sql=false --location=US
+# 3. Export Insights to GCS and download locally
+bq extract --destination_format=NEWLINE_DELIMITED_JSON your_project:your_dataset.insights gs://your_bucket/parquets/gemini-3-flash/insights.jsonl
+gsutil cp gs://your_bucket/parquets/gemini-3-flash/insights.jsonl python_pipeline/output/gemini-3-flash/extractions/insights.jsonl
 
-# 4. Create Property Graph Object
-cat 07_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
+# 4. Run Python Parquet Pipeline (Transformation & Normalization)
+cd python_pipeline
+uv run python transform.py
+uv run python entity_normalization/resolve_competitors.py
+uv run python entity_normalization/categorize_risks.py
+uv run python entity_normalization/categorize_markets.py
+uv run python entity_normalization/categorize_competitor_markets.py
+cd ..
 
-# (Optional) Merge legacy insights from sec_filings_yun
-./merge_yun_to_master.sh
+# 5. Upload Parquet files to GCS and load into BigQuery
+gsutil -m rsync -r python_pipeline/output/gemini-3-flash/parquet gs://your_bucket/parquets/gemini-3-flash/parquet
+# (See load_bq_temp.py logic inside 00_run_full_pipeline.sh for loading)
+
+# 6. Create Property Graph Object
+cat 06_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location=US
 ```
 
 ### Querying the Graph (GQL)
