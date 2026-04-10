@@ -69,6 +69,20 @@ def build_batch_prompt(labels: list[str]) -> str:
     return f"Classify these risk labels:\n\n{items}\n\nJSON:"
 
 
+def _repair_json(text: str) -> str:
+    """Attempt to repair truncated/malformed JSON from LLM output."""
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    last_complete = text.rfind("}")
+    if last_complete > 0:
+        text = text[: last_complete + 1]
+        open_obj = text.count("{") - text.count("}")
+        text += "}" * max(0, open_obj)
+        open_arr = text.count("[") - text.count("]")
+        text += "]" * max(0, open_arr)
+        text = re.sub(r",\s*([}\]])", r"\1", text)
+    return text
+
+
 def parse_response(text: str, expected_labels: list[str]) -> dict[str, list[str]]:
     """Parse LLM response into {label: [categories]} mapping."""
     text = text.strip()
@@ -85,9 +99,14 @@ def parse_response(text: str, expected_labels: list[str]) -> dict[str, list[str]
 
     try:
         items = json.loads(text[start:end])
-    except json.JSONDecodeError as e:
-        print(f"  WARN: JSON parse error: {e}")
-        return {}
+    except json.JSONDecodeError:
+        # Try repair on truncated/malformed output
+        repaired = _repair_json(text[start:])
+        try:
+            items = json.loads(repaired)
+        except json.JSONDecodeError as e2:
+            print(f"  WARN: JSON parse error (after repair): {e2}")
+            return {}
 
     result = {}
     for item in items:

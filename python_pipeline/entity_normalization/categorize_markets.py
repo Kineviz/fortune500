@@ -389,8 +389,7 @@ def main():
     args = parser.parse_args()
 
     pipeline_dir = SCRIPT_DIR.parent
-    default_model_for_path = "gemini-3-flash"  # data lives under gemini-3-flash
-    default_input = pipeline_dir / "output" / default_model_for_path / "parquet" / "nodes_market.parquet"
+    default_input = pipeline_dir / "output" / args.model / "parquet" / "nodes_market.parquet"
     input_path = Path(args.input) if args.input else default_input
     default_output = input_path.parent / "nodes_market_categorized.parquet"
     output_path = Path(args.output) if args.output else default_output
