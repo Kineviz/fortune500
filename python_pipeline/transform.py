@@ -44,6 +44,49 @@ def text_fragment_url(filing_url: str, reference: str) -> str:
     return f"{base_url}#:~:text={fragment}"
 
 
+def _extract_result_text(rec: dict) -> str:
+    """Return LLM output text from either local or BigQuery export schemas."""
+    # Local extractor schema
+    if rec.get("result"):
+        return rec.get("result") or ""
+    # BigQuery AI.GENERATE_TEXT schema
+    for key in ("ml_generate_text_result", "ml_generate_text_llm_result"):
+        if rec.get(key):
+            return rec.get(key) or ""
+    return ""
+
+
+def _parse_result_json(text: str):
+    """Parse JSON payload from raw model text, including fenced responses."""
+    if not text:
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+
+    # Remove common markdown fencing
+    if raw.startswith("```"):
+        raw = raw.removeprefix("```json").removeprefix("```").strip()
+        if raw.endswith("```"):
+            raw = raw[:-3].strip()
+
+    # Best case: full JSON document
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: parse the largest JSON object substring
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 def parse_insights(output_dir: str):
     """Read insights.jsonl and return list of parsed records."""
     insights_file = Path(output_dir) / "extractions" / "insights.jsonl"
@@ -57,13 +100,8 @@ def parse_insights(output_dir: str):
             if not line:
                 continue
             rec = json.loads(line)
-            if rec.get("result"):
-                try:
-                    rec["parsed"] = json.loads(rec["result"])
-                except json.JSONDecodeError:
-                    rec["parsed"] = None
-            else:
-                rec["parsed"] = None
+            parsed = _parse_result_json(_extract_result_text(rec))
+            rec["parsed"] = parsed if isinstance(parsed, dict) else None
             records.append(rec)
     return records
 
@@ -344,7 +382,10 @@ def main():
     print("Parsing insights...")
     records = parse_insights(args.output_dir)
     ok = sum(1 for r in records if r.get("parsed"))
+    has_text = sum(1 for r in records if _extract_result_text(r))
     print(f"  {ok}/{len(records)} records with valid JSON")
+    if has_text < len(records):
+        print(f"  {len(records) - has_text} records missing model output text")
 
     print("Building node/edge tables...")
     tables = build_tables(records)
