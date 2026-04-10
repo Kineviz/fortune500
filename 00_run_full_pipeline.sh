@@ -38,7 +38,7 @@ echo "3. Uploading Sections to GCS and Generating Insights in BigQuery..."
 gsutil -m rsync -r data/json "${GCS_BUCKET}/json"
 
 # Initialize tables
-sed -e "s/sec_filings\./\`${GCP_PROJECT}.${BQ_DATASET}\`\./g" -e "s/sec_filings;/\`${GCP_PROJECT}.${BQ_DATASET}\`;/g" 04_init_tables.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
+sed -e "s/sec_filings\./${BQ_DATASET}./g" -e "s/sec_filings;/${BQ_DATASET};/g" 04_init_tables.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
 
 # Load sections into BigQuery
 cat << 'EOF' > load_sections_temp.py
@@ -74,7 +74,7 @@ rm load_sections_temp.py
 
 # Run extraction in BigQuery
 echo "Running AI Extraction in BigQuery..."
-sed -e "s/sec_filings\./\`${GCP_PROJECT}.${BQ_DATASET}\`\./g" -e "s/sec_filings;/\`${GCP_PROJECT}.${BQ_DATASET}\`;/g" 05_extraction.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
+sed -e "s/sec_filings\./${BQ_DATASET}./g" -e "s/sec_filings;/${BQ_DATASET};/g" 05_extraction.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
 
 # Export insights back to GCS and download locally
 echo "Exporting insights to GCS and downloading locally..."
@@ -203,6 +203,6 @@ rm load_bq_temp.py
 
 echo "7. Creating Property Graph DDL..."
 # Replace sec_filings. with the actual dataset
-sed -e "s/sec_filings\./\`${GCP_PROJECT}.${BQ_DATASET}\`\./g" -e "s/sec_filings;/\`${GCP_PROJECT}.${BQ_DATASET}\`;/g" 06_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
+sed -e "s/sec_filings\./${BQ_DATASET}./g" -e "s/sec_filings;/${BQ_DATASET};/g" 06_create_property_graph_ddl.sql | bq query --use_legacy_sql=false --location="$BQ_LOCATION"
 
 echo "Pipeline Complete."
