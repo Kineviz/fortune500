@@ -297,14 +297,17 @@ def main():
     tasks = [(f, input_base, output_base) for f in filings]
     
     print(f"Starting parsing with {args.workers} workers...")
-    
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
-        # Submit all tasks
-        futures = [executor.submit(process_filing, task) for task in tasks]
-        
-        # specific progress bar
-        for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Parsing"):
-            pass
+
+    try:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(process_filing, task) for task in tasks]
+            for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Parsing"):
+                pass
+    except PermissionError as e:
+        # Some restricted environments disallow semaphores used by ProcessPool.
+        print(f"Process pool unavailable ({e}). Falling back to single-process parsing.")
+        for task in tqdm(tasks, total=len(tasks), desc="Parsing (fallback)"):
+            process_filing(task)
 
     print("Parsing complete.")
 

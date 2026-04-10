@@ -327,10 +327,15 @@ def main():
 
     print(f"Found {len(tasks)} filings to process.")
     
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(process_filing, t) for t in tasks]
-        for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-            pass
+    try:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(process_filing, t) for t in tasks]
+            for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+                pass
+    except PermissionError as e:
+        print(f"Process pool unavailable ({e}). Falling back to single-process extraction.")
+        for task in tqdm(tasks, total=len(tasks), desc="Extracting (fallback)"):
+            process_filing(task)
             
     print("Done.")
 

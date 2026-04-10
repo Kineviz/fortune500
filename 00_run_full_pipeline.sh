@@ -1,9 +1,30 @@
 #!/bin/bash
 set -euo pipefail
 
-# Optional single ticker override via CLI argument
+# Optional ticker override via CLI argument.
+# Accepts either a single ticker ("AAPL") or comma-separated tickers ("GOOGL,AAPL").
 TICKER_ARG="${1:-}"
 export TICKER_ARG
+
+ARG_TICKERS=()
+if [[ -n "${TICKER_ARG}" ]]; then
+  IFS=',' read -r -a _raw_arg_tickers <<< "${TICKER_ARG}"
+  for t in "${_raw_arg_tickers[@]}"; do
+    # Trim leading/trailing whitespace without external tools
+    t="${t#"${t%%[![:space:]]*}"}"
+    t="${t%"${t##*[![:space:]]}"}"
+    if [[ -n "${t}" ]]; then
+      ARG_TICKERS+=("${t}")
+    fi
+  done
+fi
+
+# CSV form consumed by embedded python snippets for scoped loading
+if [[ ${#ARG_TICKERS[@]} -gt 0 ]]; then
+  export TICKERS_CSV="$(IFS=,; echo "${ARG_TICKERS[*]}")"
+else
+  export TICKERS_CSV=""
+fi
 
 # --- CONFIGURATION ---
 export GCP_PROJECT="${GCP_PROJECT:-kineviz-bigquery-graph}"
@@ -24,8 +45,8 @@ export GOOGLE_CLOUD_PROJECT="$GCP_PROJECT"
 export DATA_DIR="./data/json"
 export OUTPUT_DIR="output"
 
-if [[ -n "${TICKER_ARG}" ]]; then
-  echo "Running pipeline for single ticker override: ${TICKER_ARG}"
+if [[ ${#ARG_TICKERS[@]} -gt 0 ]]; then
+  echo "Running pipeline for ticker override(s): ${ARG_TICKERS[*]}"
 elif [[ ${#TICKERS[@]} -gt 0 ]]; then
   echo "Running pipeline for configured tickers: ${TICKERS[*]}"
 else
@@ -35,7 +56,10 @@ echo "GCP_PROJECT=${GCP_PROJECT}, BQ_DATASET=${BQ_DATASET}, MODEL=${GEMINI_MODEL
 
 echo "1. Running Scraper..."
 if [[ -n "${TICKER_ARG}" ]]; then
-  python3 01_scraper.py --ticker "${TICKER_ARG}"
+  for t in "${ARG_TICKERS[@]}"; do
+    echo "  -> scraping ticker ${t}"
+    python3 01_scraper.py --ticker "${t}"
+  done
 elif [[ ${#TICKERS[@]} -gt 0 ]]; then
   for t in "${TICKERS[@]}"; do
     echo "  -> scraping ticker ${t}"
@@ -47,7 +71,9 @@ fi
 
 echo "2. Parsing SGML (optional markdown stage)..."
 if [[ -n "${TICKER_ARG}" ]]; then
-  python3 02_parser.py --ticker "${TICKER_ARG}"
+  for t in "${ARG_TICKERS[@]}"; do
+    python3 02_parser.py --ticker "${t}"
+  done
 elif [[ ${#TICKERS[@]} -gt 0 ]]; then
   for t in "${TICKERS[@]}"; do
     python3 02_parser.py --ticker "${t}"
@@ -58,7 +84,9 @@ fi
 
 echo "3. Extracting Sections..."
 if [[ -n "${TICKER_ARG}" ]]; then
-  python3 03_extract_sections.py --ticker "${TICKER_ARG}"
+  for t in "${ARG_TICKERS[@]}"; do
+    python3 03_extract_sections.py --ticker "${t}"
+  done
 elif [[ ${#TICKERS[@]} -gt 0 ]]; then
   for t in "${TICKERS[@]}"; do
     python3 03_extract_sections.py --ticker "${t}"
@@ -68,7 +96,7 @@ else
 fi
 
 echo "4. Uploading Sections to GCS..."
-gsutil -m rsync -r data/json "${GCS_BUCKET}/json"
+gcloud storage cp --recursive data/json/* "${GCS_BUCKET}/json"
 
 echo "5. Initializing BigQuery tables + loading scoped sections..."
 python3 - <<'PY'
@@ -99,8 +127,10 @@ run_bq_query("04_init_tables.sql")
 
 # Load specific URIs matching local extraction to save gsutil wildcards hanging
 local_sections = sorted(Path("./data/json").glob("*/*/sections.jsonl"))
-if os.environ.get("TICKER_ARG"):
-    local_sections = [p for p in local_sections if p.parent.parent.name.upper() == os.environ["TICKER_ARG"].upper()]
+ticker_csv = os.environ.get("TICKERS_CSV", "").strip()
+if ticker_csv:
+    ticker_set = {t.strip().upper() for t in ticker_csv.split(",") if t.strip()}
+    local_sections = [p for p in local_sections if p.parent.parent.name.upper() in ticker_set]
 
 if local_sections:
     section_uris = [
@@ -238,7 +268,7 @@ PY
 echo "8. Uploading parquet output to GCS..."
 PARQUET_LOCAL_DIR="python_pipeline/output/${GEMINI_MODEL}/parquet"
 GCS_PARQUET_PATH="${GCS_BUCKET}/parquets/${GEMINI_MODEL}/parquet"
-gsutil -m rsync -r "${PARQUET_LOCAL_DIR}" "${GCS_PARQUET_PATH}"
+gcloud storage cp --recursive "${PARQUET_LOCAL_DIR}"/* "${GCS_PARQUET_PATH}"
 
 echo "9. Loading parquet tables into BigQuery (skip missing/invalid optional tables)..."
 python3 - <<'PY'
@@ -270,6 +300,7 @@ tables_to_load = {
     "nodes_risk_category": "nodes_risk_category.parquet",
     "edges_filed": "edges_filed.parquet",
     "edges_doc_contains_section": "edges_doc_contains_section.parquet",
+    "edges_section_belongs_to_document": "edges_section_belongs_to_document.parquet",
     "edges_section_contains_ref": "edges_section_contains_ref.parquet",
     "edges_entering": "edges_entering.parquet",
     "edges_exiting": "edges_exiting.parquet",
@@ -354,9 +385,89 @@ fallback_ddls = [
     f"CREATE TABLE IF NOT EXISTS `{GCP_PROJECT}.{BQ_DATASET}.edges_in_region` (source_node STRING, target_node STRING)",
     f"CREATE TABLE IF NOT EXISTS `{GCP_PROJECT}.{BQ_DATASET}.edges_in_product_category` (source_node STRING, target_node STRING)",
     f"CREATE TABLE IF NOT EXISTS `{GCP_PROJECT}.{BQ_DATASET}.edges_in_market_category` (source_node STRING, target_node STRING)",
+    f"CREATE TABLE IF NOT EXISTS `{GCP_PROJECT}.{BQ_DATASET}.edges_section_belongs_to_document` (source_node STRING, target_node STRING)",
 ]
 for ddl in fallback_ddls:
     client.query(ddl, location=BQ_LOCATION).result()
+
+# Backfill Section -> Document edge from Document -> Section if needed.
+section_belongs_id = f"{GCP_PROJECT}.{BQ_DATASET}.edges_section_belongs_to_document"
+try:
+    t = client.get_table(section_belongs_id)
+    row_count = list(client.query(
+        f"SELECT COUNT(1) AS n FROM `{section_belongs_id}`",
+        location=BQ_LOCATION,
+    ).result())[0]["n"]
+except Exception:
+    row_count = 0
+
+if int(row_count) == 0:
+    client.query(
+        f"""
+        CREATE OR REPLACE TABLE `{section_belongs_id}` AS
+        SELECT DISTINCT target_node AS source_node, source_node AS target_node
+        FROM `{GCP_PROJECT}.{BQ_DATASET}.edges_doc_contains_section`
+        """,
+        location=BQ_LOCATION,
+    ).result()
+    print("✓ Backfilled edges_section_belongs_to_document from edges_doc_contains_section")
+
+# Normalize key columns to STRING before creating property graph
+key_columns = [
+    ("nodes_company", ["id"]),
+    ("nodes_market", ["id"]),
+    ("nodes_risk", ["id"]),
+    ("nodes_opportunity", ["id"]),
+    ("nodes_competitor", ["id"]),
+    ("nodes_reference", ["id"]),
+    ("nodes_document", ["id"]),
+    ("nodes_section", ["id"]),
+    ("nodes_normalized_competitor", ["id"]),
+    ("nodes_geographic_region", ["id"]),
+    ("nodes_market_category", ["id"]),
+    ("nodes_risk_category", ["id"]),
+    ("edges_entering", ["source_node", "target_node"]),
+    ("edges_expanding", ["source_node", "target_node"]),
+    ("edges_exiting", ["source_node", "target_node"]),
+    ("edges_faces_risk", ["source_node", "target_node"]),
+    ("edges_pursuing", ["source_node", "target_node"]),
+    ("edges_competes", ["source_node", "target_node"]),
+    ("edges_market_has_reference", ["source_node", "target_node"]),
+    ("edges_risk_has_reference", ["source_node", "target_node"]),
+    ("edges_opportunity_has_reference", ["source_node", "target_node"]),
+    ("edges_competitor_has_reference", ["source_node", "target_node"]),
+    ("edges_filed", ["source_node", "target_node"]),
+    ("edges_doc_contains_section", ["source_node", "target_node"]),
+    ("edges_section_belongs_to_document", ["source_node", "target_node"]),
+    ("edges_section_contains_ref", ["source_node", "target_node"]),
+    ("edges_instance_of", ["source_node", "target_node"]),
+    ("edges_subsidiary_of", ["source_node", "target_node"]),
+    ("edges_has_risk_category", ["source_node", "target_node"]),
+    ("edges_in_region", ["source_node", "target_node"]),
+    ("edges_in_product_category", ["source_node", "target_node"]),
+    ("edges_in_market_category", ["source_node", "target_node"]),
+]
+
+for tbl, cols in key_columns:
+    table_id = f"{GCP_PROJECT}.{BQ_DATASET}.{tbl}"
+    try:
+        t = client.get_table(table_id)
+    except Exception:
+        continue
+    select_exprs = []
+    needs_rebuild = False
+    for f in t.schema:
+        if f.name in cols and f.field_type != "STRING":
+            select_exprs.append(f"CAST(`{f.name}` AS STRING) AS `{f.name}`")
+            needs_rebuild = True
+        else:
+            select_exprs.append(f"`{f.name}`")
+    if needs_rebuild:
+        client.query(
+            f"CREATE OR REPLACE TABLE `{table_id}` AS SELECT {', '.join(select_exprs)} FROM `{table_id}`",
+            location=BQ_LOCATION,
+        ).result()
+        print(f"Rebuilt {tbl} with STRING key columns")
 
 with open("06_create_property_graph_ddl.sql", "r") as f:
     sql = f.read()

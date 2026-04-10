@@ -76,11 +76,22 @@ class SECScraper:
         """Fetches official SEC tickers synchronously."""
         print("Fetching SEC tickers...")
         headers = {"User-Agent": "Kineviz scraper dienert@kineviz.com"}
-        resp = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        self.tickers_df = pd.DataFrame.from_dict(data, orient='index')
-        print(f"Loaded {len(self.tickers_df)} tickers.")
+        try:
+            resp = requests.get(
+                "https://www.sec.gov/files/company_tickers.json",
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            self.tickers_df = pd.DataFrame.from_dict(data, orient='index')
+            print(f"Loaded {len(self.tickers_df)} tickers.")
+        except Exception as e:
+            # Allow explicit --ticker runs to proceed even when SEC ticker
+            # metadata endpoint is temporarily unavailable/network-restricted.
+            print(f"Warning: unable to fetch SEC ticker metadata ({e}).")
+            print("Proceeding with ticker-as-CIK fallback for explicit ticker mode.")
+            self.tickers_df = pd.DataFrame(columns=["ticker", "cik_str", "title"])
 
     def resolve_ticker(self, company_name):
         """Resolves company name to Ticker/CIK."""
@@ -114,8 +125,14 @@ class SECScraper:
                     val = str(self.cik).zfill(10)
                     row = {'Company': f"CIK {val}", 'Ticker': val, 'CIK': val}
                 else:
-                    print(f"Error: Ticker {self.ticker} not found in SEC database.")
-                    return
+                    # SEC browse endpoint accepts ticker in CIK parameter.
+                    # This keeps explicit ticker runs working without metadata.
+                    ticker_upper = self.ticker.upper()
+                    print(
+                        f"Warning: ticker {ticker_upper} not found in SEC metadata; "
+                        "using ticker-as-CIK fallback."
+                    )
+                    row = {'Company': ticker_upper, 'Ticker': ticker_upper, 'CIK': ticker_upper}
 
             target_companies = [row]
         else:

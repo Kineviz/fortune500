@@ -122,6 +122,12 @@ CREATE OR REPLACE PROPERTY GRAPH sec_filings.SecGraph
       DESTINATION KEY (target_node) REFERENCES nodes_section (id)
       LABEL `CONTAINS`,
 
+    sec_filings.edges_section_belongs_to_document
+      KEY (source_node, target_node)
+      SOURCE KEY (source_node) REFERENCES nodes_section (id)
+      DESTINATION KEY (target_node) REFERENCES nodes_document (id)
+      LABEL BELONGS_TO,
+
     sec_filings.edges_section_contains_ref
       KEY (source_node, target_node)
       SOURCE KEY (source_node) REFERENCES nodes_section (id)
