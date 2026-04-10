@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Optional single ticker override via CLI argument
 TICKER_ARG="${1:-}"
+export TICKER_ARG
 
 # --- CONFIGURATION ---
 export GCP_PROJECT="${GCP_PROJECT:-kineviz-bigquery-graph}"
@@ -45,10 +46,26 @@ else
 fi
 
 echo "2. Parsing SGML (optional markdown stage)..."
-python3 02_parser.py
+if [[ -n "${TICKER_ARG}" ]]; then
+  python3 02_parser.py --ticker "${TICKER_ARG}"
+elif [[ ${#TICKERS[@]} -gt 0 ]]; then
+  for t in "${TICKERS[@]}"; do
+    python3 02_parser.py --ticker "${t}"
+  done
+else
+  python3 02_parser.py
+fi
 
 echo "3. Extracting Sections..."
-python3 03_extract_sections.py
+if [[ -n "${TICKER_ARG}" ]]; then
+  python3 03_extract_sections.py --ticker "${TICKER_ARG}"
+elif [[ ${#TICKERS[@]} -gt 0 ]]; then
+  for t in "${TICKERS[@]}"; do
+    python3 03_extract_sections.py --ticker "${t}"
+  done
+else
+  python3 03_extract_sections.py
+fi
 
 echo "4. Uploading Sections to GCS..."
 gsutil -m rsync -r data/json "${GCS_BUCKET}/json"
@@ -80,28 +97,20 @@ def run_bq_query(filename):
 
 run_bq_query("04_init_tables.sql")
 
-sections_glob = f"{GCS_BUCKET}/json/*/*/sections.jsonl"
-ls_proc = subprocess.run(["gsutil", "ls", sections_glob], capture_output=True, text=True)
-if ls_proc.returncode != 0:
-    raise FileNotFoundError(f"No sections found in GCS: {sections_glob}")
-
-section_uris = [u.strip() for u in ls_proc.stdout.splitlines() if u.strip().endswith("sections.jsonl")]
-if not section_uris:
-    raise FileNotFoundError(f"No concrete section files matched: {sections_glob}")
-
-# Scope to current local extraction output when possible
+# Load specific URIs matching local extraction to save gsutil wildcards hanging
 local_sections = sorted(Path("./data/json").glob("*/*/sections.jsonl"))
+if os.environ.get("TICKER_ARG"):
+    local_sections = [p for p in local_sections if p.parent.parent.name.upper() == os.environ["TICKER_ARG"].upper()]
+
 if local_sections:
-    expected = {
+    section_uris = [
         f"{GCS_BUCKET}/json/{p.parent.parent.name}/{p.parent.name}/sections.jsonl"
         for p in local_sections
-    }
-    scoped = [u for u in section_uris if u in expected]
-    if scoped:
-        section_uris = scoped
-        print(f"✓ Scoped sections load to {len(section_uris)} file(s)")
-    else:
-        print("⚠ No scoped match from local sections; loading all matched GCS section files")
+    ]
+    print(f"✓ Scoped sections load to {len(section_uris)} file(s)")
+else:
+    print("⚠ No local sections found; falling back to loading entire bucket via wildcard")
+    section_uris = [f"{GCS_BUCKET}/json/*/*/sections.jsonl"]
 
 schema_spec = "filing_id:STRING,company:STRING,company_name:STRING,cik:STRING,sic:STRING,irs_number:STRING,state_of_inc:STRING,org_name:STRING,sec_file_number:STRING,film_number:STRING,business_street_1:STRING,business_street_2:STRING,business_city:STRING,business_state:STRING,business_zip:STRING,business_phone:STRING,mail_street_1:STRING,mail_street_2:STRING,mail_city:STRING,mail_state:STRING,mail_zip:STRING,filing_url:STRING,year:INTEGER,section_id:STRING,content:STRING"
 type_map = {"STRING": "STRING", "INTEGER": "INT64"}
@@ -114,7 +123,7 @@ table_id = f"{GCP_PROJECT}.{BQ_DATASET}.sections"
 load_config = bigquery.LoadJobConfig(
     schema=schema,
     source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-    write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
 )
 
 print("Loading sections into BigQuery...")

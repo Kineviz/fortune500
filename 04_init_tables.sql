@@ -7,7 +7,7 @@ CREATE OR REPLACE MODEL sec_filings.gemini_pro_latest
   OPTIONS (ENDPOINT = 'gemini-2.5-pro');
 
 -- 1. sections (The master table accumulating all raw data)
-CREATE OR REPLACE TABLE sec_filings.sections
+CREATE TABLE IF NOT EXISTS sec_filings.sections
 (
     filing_id STRING,
     company STRING,
@@ -37,7 +37,7 @@ CREATE OR REPLACE TABLE sec_filings.sections
 );
 
 -- 2. insights (The master table accumulating AI results)
-CREATE OR REPLACE TABLE sec_filings.insights AS
+CREATE TABLE IF NOT EXISTS sec_filings.insights AS
 SELECT * FROM 
   AI.GENERATE_TEXT(
     MODEL sec_filings.gemini_pro_latest,

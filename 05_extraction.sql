@@ -50,9 +50,16 @@ FROM
         section_id,
         content
       FROM
-        sec_filings.sections
+        sec_filings.sections AS s
       WHERE
-        section_id IN ('Item 1.', 'Item 1A.', 'Item 7.')
+        s.section_id IN ('Item 1.', 'Item 1A.', 'Item 7.')
+        AND NOT EXISTS (
+          SELECT 1 FROM sec_filings.insights i
+          WHERE i.filing_id = s.filing_id
+            AND i.company = s.company
+            AND i.year = s.year
+            AND i.section_id = s.section_id
+        )
     ),
     STRUCT(
       0.2 AS temperature,

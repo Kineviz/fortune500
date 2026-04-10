@@ -270,6 +270,7 @@ def main():
     parser.add_argument("--input_base", default="data/sgml", help="Input directory containing SGML filings")
     parser.add_argument("--output_base", default="data/markdown", help="Output directory for parsed files")
     parser.add_argument("--workers", type=int, default=multiprocessing.cpu_count(), help="Number of worker processes")
+    parser.add_argument("--ticker", help="Specific ticker to process")
     
     args = parser.parse_args()
     
@@ -283,6 +284,10 @@ def main():
     for root, dirs, files in os.walk(input_base):
         for file in files:
             if file == "full-submission.txt":
+                if args.ticker:
+                    parts = root.split(os.sep)
+                    if args.ticker.upper() not in [p.upper() for p in parts]:
+                        continue
                 filings.append(os.path.join(root, file))
                 
     print(f"Found {len(filings)} filings to parse.")
