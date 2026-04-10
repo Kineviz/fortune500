@@ -32,10 +32,18 @@ export BQ_LOCATION="${BQ_LOCATION:-US}"
 export BQ_DATASET="${BQ_DATASET:-fortune500_test}"
 export GCS_BUCKET="${GCS_BUCKET:-gs://kineviz-fortune500-data}"
 export GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-pro-preview}"
+# Set to 1 to DROP `insights` before init (full re-extract). Default: keep `insights` so
+# 05_extraction.sql only inserts missing rows (incremental via NOT EXISTS).
+export FORCE_FULL_INSIGHTS_REFRESH="${FORCE_FULL_INSIGHTS_REFRESH:-0}"
 # Optional explicit list of tickers to scrape.
 # Example: TICKERS=("AAPL" "MSFT" "GOOGL")
 # Leave empty to use list.csv + SCRAPER_LIMIT defaults from scraper.
 TICKERS=()
+if [[ ${#TICKERS[@]} -gt 0 ]]; then
+  CONFIG_TICKERS_CSV="$(IFS=,; echo "${TICKERS[*]}")"
+else
+  CONFIG_TICKERS_CSV=""
+fi
 
 # Python pipeline env vars (kept in sync with notebook 6.3)
 export LLM_PROVIDER="vertex"
@@ -53,47 +61,33 @@ else
   echo "Running pipeline for default scraper scope (list.csv + scraper limits)"
 fi
 echo "GCP_PROJECT=${GCP_PROJECT}, BQ_DATASET=${BQ_DATASET}, MODEL=${GEMINI_MODEL}"
+case "${FORCE_FULL_INSIGHTS_REFRESH}" in
+  1|true|TRUE|yes|YES)
+    echo "FORCE_FULL_INSIGHTS_REFRESH set (will drop insights before init)"
+    ;;
+  *)
+    echo "Incremental insights: existing rows kept; extraction fills gaps only (FORCE_FULL_INSIGHTS_REFRESH=1 to wipe)"
+    ;;
+esac
 
 echo "1. Running Scraper..."
 if [[ -n "${TICKER_ARG}" ]]; then
-  for t in "${ARG_TICKERS[@]}"; do
-    echo "  -> scraping ticker ${t}"
-    python3 01_scraper.py --ticker "${t}"
-  done
+  echo "  -> scraping tickers ${TICKERS_CSV}"
+  python3 01_scraper.py --tickers "${TICKERS_CSV}" --output-dir "data/sgml" --last-n-years 2
 elif [[ ${#TICKERS[@]} -gt 0 ]]; then
-  for t in "${TICKERS[@]}"; do
-    echo "  -> scraping ticker ${t}"
-    python3 01_scraper.py --ticker "${t}"
-  done
+  echo "  -> scraping tickers ${CONFIG_TICKERS_CSV}"
+  python3 01_scraper.py --tickers "${CONFIG_TICKERS_CSV}" --output-dir "data/sgml" --last-n-years 2
 else
-  python3 01_scraper.py
+  python3 01_scraper.py --output-dir "data/sgml" --last-n-years 2
 fi
 
 echo "2. Parsing SGML (optional markdown stage)..."
-if [[ -n "${TICKER_ARG}" ]]; then
-  for t in "${ARG_TICKERS[@]}"; do
-    python3 02_parser.py --ticker "${t}"
-  done
-elif [[ ${#TICKERS[@]} -gt 0 ]]; then
-  for t in "${TICKERS[@]}"; do
-    python3 02_parser.py --ticker "${t}"
-  done
-else
-  python3 02_parser.py
-fi
+# Parse once over the full scraped corpus from stage 1.
+python3 02_parser.py
 
 echo "3. Extracting Sections..."
-if [[ -n "${TICKER_ARG}" ]]; then
-  for t in "${ARG_TICKERS[@]}"; do
-    python3 03_extract_sections.py --ticker "${t}"
-  done
-elif [[ ${#TICKERS[@]} -gt 0 ]]; then
-  for t in "${TICKERS[@]}"; do
-    python3 03_extract_sections.py --ticker "${t}"
-  done
-else
-  python3 03_extract_sections.py
-fi
+# Extract once over the full scraped corpus from stage 1.
+python3 03_extract_sections.py
 
 echo "4. Uploading Sections to GCS..."
 gcloud storage cp --recursive data/json/* "${GCS_BUCKET}/json"
@@ -113,15 +107,46 @@ BQ_LOCATION = os.environ["BQ_LOCATION"]
 
 client = bigquery.Client(project=GCP_PROJECT)
 
+
+def bq_gemini_endpoint(model_env: str, project_id: str) -> str:
+    """OPTIONS(ENDPOINT) for BigQuery remote Gemini. Bare model ids become the global
+    Vertex URL (see cloud.google.com BigQuery remote models); avoids regional 'model not found'."""
+    m = (model_env or "gemini-2.5-pro").strip()
+    if m.startswith("http://") or m.startswith("https://"):
+        return m
+    if m.startswith("models/"):
+        m = m[len("models/") :].lstrip()
+    return (
+        f"https://aiplatform.googleapis.com/v1/projects/{project_id}/"
+        f"locations/global/publishers/google/models/{m}"
+    )
+
+
 def run_bq_query(filename):
     with open(filename, "r") as f:
         sql = f.read()
     sql = sql.replace("sec_filings.", f"{BQ_DATASET}.")
     sql = sql.replace("sec_filings;", f"{BQ_DATASET};")
+    endpoint = bq_gemini_endpoint(os.environ.get("GEMINI_MODEL"), GCP_PROJECT)
+    sql = sql.replace("__GEMINI_ENDPOINT__", endpoint)
     print(f"Executing {filename}...")
     job = client.query(sql, location=BQ_LOCATION)
     job.result()
     print(f"✓ Executed {filename}")
+
+# Optional full wipe: default keeps `insights` so 05_extraction INSERT only adds missing keys.
+fr = os.environ.get("FORCE_FULL_INSIGHTS_REFRESH", "").strip().lower()
+if fr in ("1", "true", "yes", "y"):
+    try:
+        client.query(
+            f"DROP TABLE IF EXISTS `{GCP_PROJECT}.{BQ_DATASET}.insights`",
+            location=BQ_LOCATION,
+        ).result()
+        print("✓ Dropped insights table (FORCE_FULL_INSIGHTS_REFRESH)")
+    except Exception as e:
+        print(f"ℹ Skipped insights drop: {e}")
+else:
+    print("ℹ Keeping existing insights table (incremental extraction)")
 
 run_bq_query("04_init_tables.sql")
 
@@ -165,12 +190,81 @@ PY
 echo "6. Running BigQuery extraction..."
 python3 - <<'PY'
 import os
+from google.api_core import exceptions as gexc
 from google.cloud import bigquery
 
 GCP_PROJECT = os.environ["GCP_PROJECT"]
 BQ_DATASET = os.environ["BQ_DATASET"]
 BQ_LOCATION = os.environ["BQ_LOCATION"]
 client = bigquery.Client(project=GCP_PROJECT)
+
+insights_id = f"{GCP_PROJECT}.{BQ_DATASET}.insights"
+sections_id = f"{GCP_PROJECT}.{BQ_DATASET}.sections"
+model_id = f"{GCP_PROJECT}.{BQ_DATASET}.gemini_pro_latest"
+
+def insights_column_names_from_model() -> tuple[str, ...] | None:
+    """Column names AI.GENERATE_TEXT returns for this remote model + sections row shape."""
+    q = f"""
+    SELECT * FROM AI.GENERATE_TEXT(
+      MODEL `{model_id}`,
+      (SELECT 'dummy' AS prompt, * FROM `{sections_id}` LIMIT 0),
+      STRUCT(0.2 AS temperature, 8192 AS max_output_tokens)
+    )
+    LIMIT 0
+    """
+    try:
+        dry = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
+        job = client.query(q, job_config=dry, location=BQ_LOCATION)
+        job.result()
+        sch = job.schema
+        if sch:
+            return tuple(f.name for f in sch)
+    except Exception as e:
+        print(f"⚠ Dry-run schema probe failed ({e}); running LIMIT 0 query once...")
+    try:
+        job = client.query(q, location=BQ_LOCATION)
+        rows = job.result()
+        job.reload()
+        sch = job.schema or getattr(rows, "schema", None)
+        if sch:
+            return tuple(f.name for f in sch)
+    except Exception as e:
+        print(f"⚠ Could not probe AI.GENERATE_TEXT output schema: {e}")
+    return None
+
+def rebuild_insights_empty_canonical() -> None:
+    q = f"""
+    CREATE OR REPLACE TABLE `{insights_id}` AS
+    SELECT * FROM AI.GENERATE_TEXT(
+      MODEL `{model_id}`,
+      (SELECT 'dummy' AS prompt, * FROM `{sections_id}` LIMIT 0),
+      STRUCT(0.2 AS temperature, 8192 AS max_output_tokens)
+    )
+    LIMIT 0
+    """
+    client.query(q, location=BQ_LOCATION).result()
+
+expected = insights_column_names_from_model()
+try:
+    cur = client.get_table(insights_id)
+    actual = tuple(f.name for f in cur.schema)
+except gexc.NotFound:
+    actual = None
+
+if expected is not None and actual == expected:
+    pass
+else:
+    if expected is None:
+        print("ℹ Rebuilding insights table (could not compare schemas; ensuring INSERT compatibility)")
+    else:
+        print(
+            f"ℹ Aligning insights schema to current model output "
+            f"({'missing table' if actual is None else f'{len(actual)} cols'} → {len(expected)} cols)"
+        )
+    rebuild_insights_empty_canonical()
+    print(
+        "✓ insights table recreated empty (05_extraction refills from sections per NOT EXISTS)"
+    )
 
 with open("05_extraction.sql", "r") as f:
     sql = f.read()
@@ -181,190 +275,87 @@ job.result()
 print("✓ Extraction complete")
 PY
 
-echo "7. Exporting insights and running python normalization..."
-bq extract --destination_format=NEWLINE_DELIMITED_JSON "${GCP_PROJECT}:${BQ_DATASET}.insights" "${GCS_BUCKET}/parquets/${GEMINI_MODEL}/insights.jsonl"
-mkdir -p "python_pipeline/output/${GEMINI_MODEL}/extractions"
-gsutil cp "${GCS_BUCKET}/parquets/${GEMINI_MODEL}/insights.jsonl" "python_pipeline/output/${GEMINI_MODEL}/extractions/insights.jsonl"
-
+echo "7. Building graph tables in BigQuery..."
 python3 - <<'PY'
-import base64
+import json
 import os
-import subprocess
-from pathlib import Path
-import pandas as pd
-
-PIPELINE_MODEL_NAME = os.environ["GEMINI_MODEL"]
-env = os.environ.copy()
-
-def run_step(cmd):
-    print("$", " ".join(cmd))
-    p = subprocess.run(cmd, cwd="python_pipeline", env=env, text=True, capture_output=True)
-    if p.stdout:
-        print(p.stdout)
-    if p.returncode != 0:
-        if p.stderr:
-            print(p.stderr)
-        raise RuntimeError(f"Step failed ({p.returncode}): {' '.join(cmd)}")
-
-def parquet_rows(path):
-    p = Path(path)
-    if not p.exists():
-        return 0
-    return len(pd.read_parquet(p))
-
-def ensure_entity_norm_taxonomy_files():
-    # In local repo runs these files should already exist.
-    # This keeps parity with notebook behavior for fragile runtimes.
-    data_dir = Path("python_pipeline/entity_normalization/data")
-    data_dir.mkdir(parents=True, exist_ok=True)
-    required = [
-        "competitor_sectors.csv",
-        "competitor_types.csv",
-        "risk_categories.csv",
-        "market_geographic_regions.csv",
-        "market_product_categories.csv",
-    ]
-    missing = [name for name in required if not (data_dir / name).exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"Missing normalization taxonomy files: {missing}. "
-            "Ensure python_pipeline/entity_normalization/data is present."
-        )
-
-print("Preparing python_pipeline environment...")
-subprocess.run(["uv", "sync", "--extra", "vertex"], cwd="python_pipeline", env=env, check=True)
-ensure_entity_norm_taxonomy_files()
-
-print("Running transform...")
-run_step(["uv", "run", "python", "transform.py"])
-
-parquet_dir = Path("python_pipeline") / "output" / PIPELINE_MODEL_NAME / "parquet"
-n_comp = parquet_rows(parquet_dir / "nodes_competitor.parquet")
-n_risk = parquet_rows(parquet_dir / "nodes_risk.parquet")
-n_market = parquet_rows(parquet_dir / "nodes_market.parquet")
-print(f"Detected rows -> competitors: {n_comp}, risks: {n_risk}, markets: {n_market}")
-
-if n_comp > 0:
-    run_step(["uv", "run", "python", "entity_normalization/resolve_competitors.py", "--model", PIPELINE_MODEL_NAME])
-    run_step([
-        "uv", "run", "python", "entity_normalization/categorize_competitor_markets.py",
-        "--model", PIPELINE_MODEL_NAME,
-        "--parquet-dir", f"output/{PIPELINE_MODEL_NAME}/parquet",
-    ])
-else:
-    print("Skipping competitor normalization (0 competitor rows)")
-
-if n_risk > 0:
-    run_step(["uv", "run", "python", "entity_normalization/categorize_risks.py", "--model", PIPELINE_MODEL_NAME])
-else:
-    print("Skipping risk categorization (0 risk rows)")
-
-if n_market > 0:
-    run_step(["uv", "run", "python", "entity_normalization/categorize_markets.py", "--model", PIPELINE_MODEL_NAME])
-else:
-    print("Skipping market categorization (0 market rows)")
-PY
-
-echo "8. Uploading parquet output to GCS..."
-PARQUET_LOCAL_DIR="python_pipeline/output/${GEMINI_MODEL}/parquet"
-GCS_PARQUET_PATH="${GCS_BUCKET}/parquets/${GEMINI_MODEL}/parquet"
-gcloud storage cp --recursive "${PARQUET_LOCAL_DIR}"/* "${GCS_PARQUET_PATH}"
-
-echo "9. Loading parquet tables into BigQuery (skip missing/invalid optional tables)..."
-python3 - <<'PY'
-import os
-import subprocess
 from google.cloud import bigquery
-import pandas as pd
 
 GCP_PROJECT = os.environ["GCP_PROJECT"]
 BQ_DATASET = os.environ["BQ_DATASET"]
 BQ_LOCATION = os.environ["BQ_LOCATION"]
-PARQUET_LOCAL_DIR = f"python_pipeline/output/{os.environ['GEMINI_MODEL']}/parquet"
-gcs_parquet_path = f"{os.environ['GCS_BUCKET']}/parquets/{os.environ['GEMINI_MODEL']}/parquet"
+GEMINI_MODEL = os.environ["GEMINI_MODEL"]
 
 client = bigquery.Client(project=GCP_PROJECT)
 
-tables_to_load = {
-    "nodes_company": "nodes_company.parquet",
-    "nodes_document": "nodes_document.parquet",
-    "nodes_section": "nodes_section.parquet",
-    "nodes_reference": "nodes_reference.parquet",
-    "nodes_opportunity": "nodes_opportunity.parquet",
-    "nodes_competitor": "nodes_competitor.parquet",
-    "nodes_market": "nodes_market_categorized.parquet",
-    "nodes_risk": "nodes_risk_categorized.parquet",
-    "nodes_normalized_competitor": "nodes_normalized_competitor.parquet",
-    "nodes_geographic_region": "nodes_geographic_region.parquet",
-    "nodes_market_category": "nodes_market_category.parquet",
-    "nodes_risk_category": "nodes_risk_category.parquet",
-    "edges_filed": "edges_filed.parquet",
-    "edges_doc_contains_section": "edges_doc_contains_section.parquet",
-    "edges_section_belongs_to_document": "edges_section_belongs_to_document.parquet",
-    "edges_section_contains_ref": "edges_section_contains_ref.parquet",
-    "edges_entering": "edges_entering.parquet",
-    "edges_exiting": "edges_exiting.parquet",
-    "edges_expanding": "edges_expanding.parquet",
-    "edges_faces_risk": "edges_faces_risk.parquet",
-    "edges_pursuing": "edges_pursuing.parquet",
-    "edges_competes": "edges_competes.parquet",
-    "edges_market_has_reference": "edges_market_has_reference.parquet",
-    "edges_risk_has_reference": "edges_risk_has_reference.parquet",
-    "edges_opportunity_has_reference": "edges_opportunity_has_reference.parquet",
-    "edges_competitor_has_reference": "edges_competitor_has_reference.parquet",
-    "edges_instance_of": "edges_instance_of.parquet",
-    "edges_subsidiary_of": "edges_subsidiary_of.parquet",
-    "edges_has_risk_category": "edges_has_risk_category.parquet",
-    "edges_in_region": "edges_in_region.parquet",
-    "edges_in_product_category": "edges_in_product_category.parquet",
-    "edges_in_market_category": "edges_in_market_category.parquet",
+# Ensure notebook 6.3 sees expected insights model-output columns.
+insights_table = f"{GCP_PROJECT}.{BQ_DATASET}.insights"
+t = client.get_table(insights_table)
+schema_names = {f.name for f in t.schema}
+
+if "ml_generate_text_result" not in schema_names:
+    if "result" in schema_names:
+        client.query(
+            f"""
+            CREATE OR REPLACE TABLE `{insights_table}` AS
+            SELECT i.*, CAST(i.result AS STRING) AS ml_generate_text_result
+            FROM `{insights_table}` AS i
+            """,
+            location=BQ_LOCATION,
+        ).result()
+        print("✓ Added ml_generate_text_result from result column")
+    elif "ml_generate_text_llm_result" in schema_names:
+        client.query(
+            f"""
+            CREATE OR REPLACE TABLE `{insights_table}` AS
+            SELECT i.*, CAST(i.ml_generate_text_llm_result AS STRING) AS ml_generate_text_result
+            FROM `{insights_table}` AS i
+            """,
+            location=BQ_LOCATION,
+        ).result()
+        print("✓ Added ml_generate_text_result from ml_generate_text_llm_result column")
+
+# Some notebook logic references both column names.
+t = client.get_table(insights_table)
+schema_names = {f.name for f in t.schema}
+if "ml_generate_text_llm_result" not in schema_names and "ml_generate_text_result" in schema_names:
+    client.query(
+        f"""
+        CREATE OR REPLACE TABLE `{insights_table}` AS
+        SELECT i.*, CAST(i.ml_generate_text_result AS STRING) AS ml_generate_text_llm_result
+        FROM `{insights_table}` AS i
+        """,
+        location=BQ_LOCATION,
+    ).result()
+    print("✓ Added ml_generate_text_llm_result mirror column")
+
+# Execute the same BigQuery-only graph build cell used in pipeline.ipynb (cell id: zz1-q8mT2It0)
+with open("pipeline.ipynb", "r", encoding="utf-8") as f:
+    nb = json.load(f)
+
+cell = None
+for c in nb.get("cells", []):
+    if c.get("metadata", {}).get("id") == "zz1-q8mT2It0":
+        cell = c
+        break
+if cell is None:
+    raise RuntimeError("Could not find pipeline cell id zz1-q8mT2It0 for BigQuery graph build.")
+
+code = "".join(cell.get("source", []))
+ctx = {
+    "__name__": "__main__",
+    "os": os,
+    "client": client,
+    "GCP_PROJECT": GCP_PROJECT,
+    "BQ_DATASET": BQ_DATASET,
+    "BQ_LOCATION": BQ_LOCATION,
+    "GEMINI_MODEL": GEMINI_MODEL,
 }
-
-loaded_tables = []
-skipped_tables = []
-
-for bq_table_name, parquet_file in tables_to_load.items():
-    uri = f"{gcs_parquet_path}/{parquet_file}"
-    local_parquet = f"{PARQUET_LOCAL_DIR}/{parquet_file}"
-
-    exists = subprocess.run(["gsutil", "ls", uri], capture_output=True, text=True)
-    if exists.returncode != 0:
-        print(f"Skipping {bq_table_name}: missing {uri}")
-        skipped_tables.append((bq_table_name, parquet_file))
-        continue
-
-    if os.path.exists(local_parquet):
-        try:
-            col_count = len(pd.read_parquet(local_parquet).columns)
-        except Exception as e:
-            print(f"Skipping {bq_table_name}: unable to inspect {local_parquet} ({e})")
-            skipped_tables.append((bq_table_name, parquet_file))
-            continue
-        if col_count == 0:
-            print(f"Skipping {bq_table_name}: zero-column parquet {local_parquet}")
-            skipped_tables.append((bq_table_name, parquet_file))
-            continue
-
-    query = f"""
-    LOAD DATA OVERWRITE `{GCP_PROJECT}.{BQ_DATASET}.{bq_table_name}`
-    FROM FILES (
-      format = 'PARQUET',
-      uris = ['{uri}']
-    );
-    """
-    print(f"Loading {bq_table_name} from {parquet_file}...")
-    job = client.query(query, location=BQ_LOCATION)
-    job.result()
-    loaded_tables.append((bq_table_name, parquet_file))
-
-print(f"\nLoaded {len(loaded_tables)} parquet tables.")
-if skipped_tables:
-    print(f"Skipped {len(skipped_tables)} tables:")
-    for n, p in skipped_tables:
-        print(f"  - {n} ({p})")
+exec(code, ctx, ctx)
+print("✓ BigQuery-only graph table build complete")
 PY
 
-echo "10. Creating Property Graph DDL..."
+echo "8. Creating Property Graph DDL..."
 python3 - <<'PY'
 import os
 from google.cloud import bigquery

@@ -42,9 +42,10 @@ class RateLimiter:
                     time.sleep(wait_time)
 
 class SECScraper:
-    def __init__(self, limit=10, year=None, last_n_years=None, workers=5, output_dir="sec-edgar-filings", headless=True, dry_run=False, cik=None, ticker=None):
+    def __init__(self, limit=10, year=None, last_n_years=None, workers=5, output_dir="sec-edgar-filings", headless=True, dry_run=False, cik=None, ticker=None, tickers=None):
         self.cik = cik
         self.ticker = ticker
+        self.tickers = tickers or []
         self.limit = limit
         self.year = year
         self.last_n_years = last_n_years
@@ -65,9 +66,11 @@ class SECScraper:
             self.start_year = self.current_year - self.last_n_years + 1
             self.end_year = self.current_year
         else:
-            # Default to current year if nothing specified (or maybe just latest?)
-            # For this custom scraper, let's default to last 1 year to be safe
-            self.start_year = self.current_year
+            # Latest 10-K rows on SEC browse are usually dated the prior calendar year
+            # (e.g. FY 2025 filed in early 2026). A window of "only current_year" often
+            # hits `filing_date.year < start_year` on the first row (newest-first) and
+            # bails with no download. Include the previous year so all tickers can fetch.
+            self.start_year = self.current_year - 1
             self.end_year = self.current_year
 
         self.tickers_df = None
@@ -105,7 +108,28 @@ class SECScraper:
     async def run(self):
         self.fetch_tickers()
         
-        if self.cik or self.ticker:
+        if self.tickers:
+            target_companies = []
+            for ticker in self.tickers:
+                ticker_upper = ticker.upper()
+                match = self.tickers_df[self.tickers_df['ticker'] == ticker_upper]
+                if not match.empty:
+                    target_companies.append({
+                        'Company': match.iloc[0]['title'],
+                        'Ticker': match.iloc[0]['ticker'],
+                        'CIK': str(match.iloc[0]['cik_str']).zfill(10)
+                    })
+                else:
+                    print(
+                        f"Warning: ticker {ticker_upper} not found in SEC metadata; "
+                        "using ticker-as-CIK fallback."
+                    )
+                    target_companies.append({
+                        'Company': ticker_upper,
+                        'Ticker': ticker_upper,
+                        'CIK': ticker_upper
+                    })
+        elif self.cik or self.ticker:
             # Handle single CIK/Ticker mode
             if self.cik:
                 cik_padded = str(self.cik).zfill(10)
@@ -299,12 +323,17 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", type=str, default="test")
     parser.add_argument("--cik", type=str, help="Specify a single CIK to process (skips list.csv)")
     parser.add_argument("--ticker", type=str, help="Specify a single Ticker to process (skips list.csv)")
+    parser.add_argument("--tickers", type=str, help="Comma-separated tickers to process in one run")
     parser.add_argument("--headless", action="store_true", default=True) # Default headless
     parser.add_argument("--no-headless", action="store_false", dest="headless")
     parser.add_argument("--dry-run", action="store_true")
     
     args = parser.parse_args()
     
+    ticker_list = []
+    if args.tickers:
+        ticker_list = [t.strip() for t in args.tickers.split(",") if t.strip()]
+
     scraper = SECScraper(
         limit=args.limit,
         year=args.year,
@@ -314,7 +343,8 @@ if __name__ == "__main__":
         headless=args.headless,
         dry_run=args.dry_run,
         cik=args.cik,
-        ticker=args.ticker
+        ticker=args.ticker,
+        tickers=ticker_list
     )
     
     asyncio.run(scraper.run())

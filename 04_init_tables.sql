@@ -2,9 +2,11 @@ CREATE SCHEMA IF NOT EXISTS sec_filings;
 
 -- 0. Configure the Generative AI Model linking to Vertex AI
 -- NOTE: Change `us.vertex_ai_connection` if you used a different name for your BigQuery cloud resource connection.
+-- ENDPOINT is substituted at run time: bare GEMINI_MODEL ids -> global Vertex URL
+-- .../locations/global/publishers/google/models/<id> (or pass a full https:// ENDPOINT).
 CREATE OR REPLACE MODEL sec_filings.gemini_pro_latest
   REMOTE WITH CONNECTION `us.vertex_ai_connection`
-  OPTIONS (ENDPOINT = 'gemini-2.5-pro');
+  OPTIONS (ENDPOINT = '__GEMINI_ENDPOINT__');
 
 -- 1. sections (The master table accumulating all raw data)
 CREATE TABLE IF NOT EXISTS sec_filings.sections
