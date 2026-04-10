@@ -550,14 +550,16 @@ def phase5_generate_output(
     print(f"  edges_competitor_has_reference_resolved: {len(ref_df)} rows -> {ref_path}")
 
     sub_df = pd.DataFrame(
-        [{"source_node": s, "target_node": t} for s, t in subsidiary_rows]
+        [{"source_node": s, "target_node": t} for s, t in subsidiary_rows],
+        columns=["source_node", "target_node"],
     )
     sub_path = output_dir / "edges_subsidiary_of.parquet"
     sub_df.to_parquet(sub_path, index=False)
     print(f"  edges_subsidiary_of: {len(sub_df)} rows -> {sub_path}")
 
     cat_df = pd.DataFrame(
-        [{"source_node": s, "target_node": t} for s, t in in_category_rows]
+        [{"source_node": s, "target_node": t} for s, t in in_category_rows],
+        columns=["source_node", "target_node"],
     )
     cat_path = output_dir / "edges_in_category.parquet"
     cat_df.to_parquet(cat_path, index=False)

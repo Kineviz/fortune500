@@ -252,7 +252,7 @@ async def run(parquet_dir: Path, model_name: str, batch_size: int, max_concurren
     for _, row in nc.iterrows():
         if row["product_category"] and row["product_category"] in mc_id_map:
             in_mc_rows.append({"source_node": row["id"], "target_node": mc_id_map[row["product_category"]]})
-    in_mc_df = pd.DataFrame(in_mc_rows)
+    in_mc_df = pd.DataFrame(in_mc_rows, columns=["source_node", "target_node"])
     in_mc_path = parquet_dir / "edges_in_market_category.parquet"
     in_mc_df.to_parquet(in_mc_path, index=False)
     print(f"  edges_in_market_category: {len(in_mc_df)} rows -> {in_mc_path.name}")
