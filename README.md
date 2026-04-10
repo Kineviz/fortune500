@@ -9,7 +9,7 @@ A high-performance, custom-built Python scraper to download 10-K and 10-Q filing
 - **Top Tier Performance**: Concurrent downloading, handling resolution and strictly compliant with SEC limiting protocols. 
 - **Flexible Extractor Configurations**: Parse exact years, CIK, Tickers, and automatically skip files via checkpointing.
 - **AI Powered Synthesis**: Extracts exact insights (Markets, Risks, Competitions) organically into JSON structures natively inside BigQuery using `AI.GENERATE_TEXT`.
-- **Intelligent Graph Creation**: Seamlessly transforms extraction JSONs into Parquet files, normalizes entities (e.g., deduplicating competitors, categorizing risks), and loads them back into BigQuery to visualize the data immediately as a Property Graph.
+- **Intelligent Graph Creation**: Builds node and edge tables in BigQuery from extracted JSON (including LLM-based normalization in SQL), then materializes a Property Graph for visualization.
 
 ## Usage
 
@@ -27,16 +27,59 @@ Before executing the data pipeline, you must configure your Google Cloud Platfor
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kineviz/fortune500/blob/main/pipeline.ipynb)
 
-The absolute easiest way to execute the **entire** end-to-end pipeline is by launching the **`pipeline.ipynb`** notebook! We strongly suggest running this inside Google Colab using the button above.
+### Command line
 
-### 💻 Advanced Method: Specific Command Line Scripts
+Run from the repo root. The full pipeline uses `python3` (same as `00_run_full_pipeline.sh`).
 
-If you want to run the pipeline sequentially (e.g., executing the SEC scraper script, extraction algorithms, or BQ property SQL setups individually), we detailed these advanced individual configurations in the accompanying guide below. 
+**Full pipeline — `00_run_full_pipeline.sh`**
 
-👉 **[Read the Manual Scripts Setup Guide](SCRIPTS.md)**
+```bash
+./00_run_full_pipeline.sh
+./00_run_full_pipeline.sh AAPL
+./00_run_full_pipeline.sh GOOGL,AAPL
+```
 
+Optional: `GCP_PROJECT`, `BQ_DATASET`, `GCS_BUCKET`, `GEMINI_MODEL` (defaults are in the script). `FORCE_FULL_INSIGHTS_REFRESH=1` drops and rebuilds `insights`; otherwise extraction only fills gaps.
+
+Flow: scrape → parse → sections JSONL → GCS → BigQuery → insights → graph tables → property graph DDL. Details: the script and `pipeline.ipynb`.
+
+Example GQL (replace `sec_filings` with your dataset if different):
+
+```sql
+GRAPH sec_filings.SecGraph
+MATCH (c:Company)-[:ENTERING]->(m:Market)
+WHERE m.year = 2020
+RETURN c.id, m.id, m.evidence
+```
+
+**Piecemeal scripts**
+
+| Step | Script | Typical use |
+|------|--------|-------------|
+| 1 | `01_scraper.py` | Download filings → `data/sgml/.../full-submission.txt` |
+| 2 | `02_parser.py` | SGML → markdown under `data/markdown/` |
+| 3 | `03_extract_sections.py` | Sections → `data/json/<ticker>/<year>/sections.jsonl` |
+
+```bash
+python3 01_scraper.py --limit 10 --output-dir data/sgml
+python3 01_scraper.py --ticker AAPL --year 2024 --output-dir data/sgml
+python3 02_parser.py
+python3 03_extract_sections.py
+python3 03_extract_sections.py --ticker AAPL --year 2023
+```
+
+`01_scraper.py` defaults `--output-dir` to `test`; use `data/sgml` to match the full pipeline. Each script accepts `--help` for full flags.
+
+**Data layout**
+
+```
+data/sgml/<Ticker>/<10-K|10-Q>/<accession>/full-submission.txt
+data/json/<Ticker>/<year>/sections.jsonl
+```
 
 ## Visualizing with GraphXR
+
+ ![Demo](images/graphxr.gif) 
 
 You have two main options for visualizing your graph, depending on your data privacy and deployment needs.
 
